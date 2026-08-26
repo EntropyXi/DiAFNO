@@ -65,9 +65,9 @@ class OSTIATrainingConfig:
     model: OSTIAModelConfig = field(default_factory=OSTIAModelConfig)
     num_epochs: int = 35
     samples_per_epoch: int = 20000
-    # batch 2 -> 4，同时 gradient_accumulation 4 -> 2，
-    # 全局有效 batch 保持不变（单卡 8 / 双卡 16 / 8卡 64），lr 无需调整
-    batch_per_gpu: int = 4
+    # batch_per_gpu=16 x gradient_accumulation=2 -> 每卡有效 batch 32
+    # （双卡全局 64）；4090 24G 下峰值显存约 8-10GB/卡
+    batch_per_gpu: int = 16
     gradient_accumulation: int = 2
     learning_rate: float = 2e-4
     min_learning_rate: float = 1e-6
