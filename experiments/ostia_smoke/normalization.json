@@ -1,0 +1,6 @@
+{
+  "sst_mean": 293.49973318784635,
+  "sst_std": 9.296268138013883,
+  "weekly_stride_days": 7.0,
+  "source": "training_split_sample"
+}
