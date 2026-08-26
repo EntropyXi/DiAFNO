@@ -1,5 +1,5 @@
 from dataclasses import asdict, dataclass, field
-from typing import Tuple
+from typing import Optional, Tuple
 
 import torch
 
@@ -62,13 +62,14 @@ class OSTIATrainingConfig:
     seed: int = 123
     train_h5_path: str = "/data/exam_preprocessed_data/zzx/ocean_temperature_data_patched.h5"
     output_dir: str = "./experiments/ostia_7to15"
+    resume_path: Optional[str] = None
     model: OSTIAModelConfig = field(default_factory=OSTIAModelConfig)
     num_epochs: int = 35
-    samples_per_epoch: int = 20000
-    # batch_per_gpu=16 x gradient_accumulation=2 -> 每卡有效 batch 32
-    # （双卡全局 64）；4090 24G 下峰值显存约 8-10GB/卡
+    samples_per_epoch: int = 8448
+    # batch_per_gpu=16 x 2 GPUs -> global batch 32
+    # 35 epochs x 8448 samples -> about 60 training hours
     batch_per_gpu: int = 16
-    gradient_accumulation: int = 2
+    gradient_accumulation: int = 1
     learning_rate: float = 2e-4
     min_learning_rate: float = 1e-6
     weight_decay: float = 1e-4
@@ -90,6 +91,12 @@ def build_parser():
     )
     parser.add_argument("--train-h5-path")
     parser.add_argument("--output-dir")
+    parser.add_argument(
+        "--resume",
+        dest="resume_path",
+        nargs="?",
+        const="latest"
+    )
     parser.add_argument("--num-epochs", type=int)
     parser.add_argument("--samples-per-epoch", type=int)
     parser.add_argument("--batch-per-gpu", type=int)
@@ -125,6 +132,7 @@ def training_config_from_args(args):
     field_names = (
         "train_h5_path",
         "output_dir",
+        "resume_path",
         "num_epochs",
         "samples_per_epoch",
         "batch_per_gpu",

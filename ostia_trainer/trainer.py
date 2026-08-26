@@ -27,6 +27,7 @@ class OSTIATrainer:
         self.scheduler = None
         self.scaler = None
         self.amp_enabled = False
+        self.start_epoch = 0
         self.global_step = 0
         self.history = TrainingHistory(
             config.output_dir,
@@ -52,6 +53,7 @@ class OSTIATrainer:
             self.runtime
         ).setup()
         self._build_training_components()
+        self._resume_training()
 
     def _build_training_components(self):
         self.model = self.config.model.build_model(
@@ -90,6 +92,37 @@ class OSTIATrainer:
             enabled=self.amp_enabled
         )
         self.optimizer.zero_grad(set_to_none=True)
+
+    def _resume_training(self):
+        resume_path = self.config.resume_path
+        if resume_path is None:
+            return
+        if resume_path == "latest":
+            resume_path = os.path.join(
+                self.config.output_dir,
+                "latest.pth"
+            )
+        resume_path = os.path.abspath(resume_path)
+        checkpoint = self.checkpoints.load(
+            resume_path,
+            self.model,
+            self.optimizer,
+            self.scheduler,
+            self.scaler,
+            self.runtime.device,
+            self.runtime.rank
+        )
+        self.start_epoch = int(checkpoint["epoch"])
+        self.global_step = int(checkpoint["global_step"])
+        if self.runtime.is_main_process:
+            self.history.load()
+            print("Resumed checkpoint:", resume_path)
+            print(
+                "Starting epoch:",
+                self.start_epoch + 1,
+                "global step:",
+                self.global_step
+            )
 
     @staticmethod
     def unpack_batch(batch):
@@ -276,6 +309,20 @@ class OSTIATrainer:
         ).item()
 
     def _finish_epoch(self, epoch, mean_train_loss):
+        random_state = (
+            self.checkpoints.capture_random_state()
+        )
+        if self.runtime.distributed:
+            random_states = [
+                None
+                for _ in range(self.runtime.world_size)
+            ]
+            dist.all_gather_object(
+                random_states,
+                random_state
+            )
+        else:
+            random_states = [random_state]
         if self.runtime.is_main_process:
             peak_memory = 0.0
             if self.runtime.device.type == "cuda":
@@ -302,7 +349,8 @@ class OSTIATrainer:
                 epoch + 1,
                 self.global_step,
                 mean_train_loss,
-                self.data.dataset
+                self.data.dataset,
+                random_states
             )
             if (
                     (epoch + 1)
@@ -320,7 +368,8 @@ class OSTIATrainer:
                     epoch + 1,
                     self.global_step,
                     mean_train_loss,
-                    self.data.dataset
+                    self.data.dataset,
+                    random_states
                 )
             self.history.save()
         self.runtime.barrier()
@@ -328,7 +377,10 @@ class OSTIATrainer:
     def train(self):
         try:
             self.setup()
-            for epoch in range(self.config.num_epochs):
+            for epoch in range(
+                    self.start_epoch,
+                    self.config.num_epochs
+                ):
                 epoch_loss, epoch_batches = self._train_epoch(
                     epoch
                 )

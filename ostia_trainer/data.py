@@ -14,33 +14,59 @@ def seed_worker(worker_id):
     np.random.seed(worker_seed)
 
 
-class RandomDistributedSubsetSampler(Sampler):
+class DistributedSpatialBlockSampler(Sampler):
     def __init__(
             self,
             dataset,
             samples_per_epoch,
+            batch_size,
             num_replicas,
             rank,
             seed=123,
         ):
         self.dataset_size = len(dataset)
+        self.sequences_per_window = (
+            dataset.sequences_per_window
+        )
+        self.samples_per_day = dataset.samples_per_day
+        self.batch_size = batch_size
         self.num_replicas = num_replicas
         self.rank = rank
         self.seed = seed
         self.epoch = 0
+        if self.batch_size < 1:
+            raise ValueError("batch_size must be positive")
+        self.blocks_per_sequence = (
+            self.samples_per_day // self.batch_size
+        )
+        if self.blocks_per_sequence < 1:
+            raise ValueError(
+                "batch_size is larger than samples_per_day"
+            )
+        self.available_blocks = (
+            self.sequences_per_window
+            * self.blocks_per_sequence
+        )
         requested_samples = min(
             samples_per_epoch,
             self.dataset_size
         )
-        self.total_size = (
-            requested_samples
-            // self.num_replicas
+        requested_blocks = min(
+            requested_samples // self.batch_size,
+            self.available_blocks
+        )
+        self.total_blocks = (
+            requested_blocks // self.num_replicas
             * self.num_replicas
         )
-        if self.total_size == 0:
+        if self.total_blocks == 0:
             raise ValueError(
-                "samples_per_epoch is smaller than world_size"
+                "samples_per_epoch must contain at least "
+                "one full batch per rank"
             )
+        self.total_size = (
+            self.total_blocks * self.batch_size
+        )
         self.num_samples = (
             self.total_size
             // self.num_replicas
@@ -52,14 +78,38 @@ class RandomDistributedSubsetSampler(Sampler):
     def __iter__(self):
         generator = torch.Generator()
         generator.manual_seed(self.seed + self.epoch)
-        indices = torch.randperm(
-            self.dataset_size,
+        block_indices = torch.randperm(
+            self.available_blocks,
             generator=generator
-        )[:self.total_size]
-        indices = indices[
-            self.rank:self.total_size:self.num_replicas
+        )[:self.total_blocks]
+        block_indices = block_indices[
+            self.rank:self.total_blocks:self.num_replicas
         ]
-        return iter(indices.tolist())
+        spatial_offset = (
+            self.epoch * self.batch_size
+            % self.samples_per_day
+        )
+        indices = []
+        for block_index in block_indices.tolist():
+            sequence_index, spatial_block = divmod(
+                block_index,
+                self.blocks_per_sequence
+            )
+            spatial_start = (
+                spatial_offset
+                + spatial_block * self.batch_size
+            ) % self.samples_per_day
+            spatial_indices = (
+                spatial_start
+                + np.arange(self.batch_size)
+            ) % self.samples_per_day
+            indices.extend(
+                (
+                    sequence_index * self.samples_per_day
+                    + spatial_indices
+                ).tolist()
+            )
+        return iter(indices)
 
     def __len__(self):
         return self.num_samples
@@ -82,9 +132,10 @@ class OSTIATrainingData:
             output_weeks=model_config.output_weeks,
             condition_mode=self.config.condition_mode
         )
-        self.sampler = RandomDistributedSubsetSampler(
+        self.sampler = DistributedSpatialBlockSampler(
             dataset=self.dataset,
             samples_per_epoch=self.config.samples_per_epoch,
+            batch_size=self.config.batch_per_gpu,
             num_replicas=self.runtime.world_size,
             rank=self.runtime.rank,
             seed=self.config.seed

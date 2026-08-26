@@ -41,6 +41,10 @@ class OSTIAWeeklyDataset(Dataset):
         self.sequence_weeks = input_weeks + output_weeks
         self.condition_mode = condition_mode
         self.week_stride_days = 7
+        self.week_offsets = (
+            np.arange(self.sequence_weeks, dtype=np.int64)
+            * self.week_stride_days
+        )
         self._h5_file = None
         self._h5_pid = None
         self._inspect_file()
@@ -237,24 +241,33 @@ class OSTIAWeeklyDataset(Dataset):
             * self.samples_per_day
         )
 
-    def __getitem__(self, index):
+    def _normalize_index(self, index):
         if index < 0:
             index += len(self)
         if index < 0 or index >= len(self):
             raise IndexError(index)
-        sequence_index, spatial_index = divmod(
-            index,
-            self.samples_per_day
-        )
+        return index
+
+    def _load_sequence_batch(
+            self,
+            sequence_index,
+            spatial_indices,
+        ):
         start_week = (
             self.split_start_week + sequence_index
         )
         days = (
-            start_week + np.arange(self.sequence_weeks)
-        ) * self.week_stride_days
-        rows = (
-            days * self.samples_per_day + spatial_index
+            start_week * self.week_stride_days
+            + self.week_offsets
         )
+        unique_spatial, restore = np.unique(
+            spatial_indices,
+            return_inverse=True
+        )
+        rows = (
+            days[:, None] * self.samples_per_day
+            + unique_spatial[None, :]
+        ).reshape(-1)
         h5_file = self._get_file()
         sst = np.asarray(
             h5_file["sst"][rows, 0],
@@ -264,9 +277,22 @@ class OSTIAWeeklyDataset(Dataset):
             h5_file["mask"][rows],
             dtype=np.uint8
         )
-        times = np.asarray(
-            h5_file["time"][rows],
-            dtype=np.int64
+        batch_size = unique_spatial.size
+        sst = sst.reshape(
+            self.sequence_weeks,
+            batch_size,
+            *self.image_shape
+        ).transpose(1, 0, 2, 3)[restore]
+        mask = mask.reshape(
+            self.sequence_weeks,
+            batch_size,
+            *self.image_shape
+        ).transpose(1, 0, 2, 3)[restore]
+        times = (
+            self.first_time + days
+        ).astype(
+            np.int64,
+            copy=False
         )
         valid = self._valid_ocean(sst, mask)
         sst = np.where(
@@ -277,49 +303,97 @@ class OSTIAWeeklyDataset(Dataset):
         sst = (
             (sst - self.sst_mean) / self.sst_std
         ).astype(np.float32, copy=False)
-        input_sst = sst[:self.input_weeks]
-        target = sst[self.input_weeks:]
-        target_mask = valid[self.input_weeks:].astype(
-            np.float32,
-            copy=False
-        )
-        if self.condition_mode == "sst_mask":
-            condition = np.concatenate(
-                (
-                    input_sst,
-                    valid[self.input_weeks - 1][None].astype(
-                        np.float32,
-                        copy=False
-                    )
-                ),
-                axis=0
+        samples = []
+        for batch_index, spatial_index in enumerate(
+                spatial_indices
+            ):
+            sample_sst = sst[batch_index]
+            sample_valid = valid[batch_index]
+            input_sst = sample_sst[:self.input_weeks]
+            target = sample_sst[self.input_weeks:]
+            target_mask = sample_valid[
+                self.input_weeks:
+            ].astype(
+                np.float32,
+                copy=False
             )
-        else:
-            condition = input_sst
-        condition = np.ascontiguousarray(
-            condition[..., None]
+            if self.condition_mode == "sst_mask":
+                condition = np.concatenate(
+                    (
+                        input_sst,
+                        sample_valid[
+                            self.input_weeks - 1
+                        ][None].astype(
+                            np.float32,
+                            copy=False
+                        )
+                    ),
+                    axis=0
+                )
+            else:
+                condition = input_sst
+            condition = np.ascontiguousarray(
+                condition[..., None]
+            )
+            target = np.ascontiguousarray(
+                target[..., None]
+            )
+            target_mask = np.ascontiguousarray(
+                target_mask[..., None]
+            )
+            metadata = {
+                "sequence_index": np.int64(sequence_index),
+                "spatial_index": np.int64(spatial_index),
+                "input_start_time": np.int64(times[0]),
+                "target_start_time": np.int64(
+                    times[self.input_weeks]
+                ),
+                "target_end_time": np.int64(times[-1])
+            }
+            samples.append(
+                {
+                    "condition": torch.from_numpy(condition),
+                    "target": torch.from_numpy(target),
+                    "target_mask": torch.from_numpy(target_mask),
+                    "metadata": metadata
+                }
+            )
+        return samples
+
+    def __getitems__(self, indices):
+        indices = np.asarray(
+            [
+                self._normalize_index(int(index))
+                for index in indices
+            ],
+            dtype=np.int64
         )
-        target = np.ascontiguousarray(
-            target[..., None]
+        if indices.size == 0:
+            return []
+        sequence_indices = (
+            indices // self.samples_per_day
         )
-        target_mask = np.ascontiguousarray(
-            target_mask[..., None]
+        spatial_indices = (
+            indices % self.samples_per_day
         )
-        metadata = {
-            "sequence_index": np.int64(sequence_index),
-            "spatial_index": np.int64(spatial_index),
-            "input_start_time": np.int64(times[0]),
-            "target_start_time": np.int64(
-                times[self.input_weeks]
-            ),
-            "target_end_time": np.int64(times[-1])
-        }
-        return {
-            "condition": torch.from_numpy(condition),
-            "target": torch.from_numpy(target),
-            "target_mask": torch.from_numpy(target_mask),
-            "metadata": metadata
-        }
+        samples = [None] * indices.size
+        for sequence_index in np.unique(sequence_indices):
+            positions = np.flatnonzero(
+                sequence_indices == sequence_index
+            )
+            sequence_samples = self._load_sequence_batch(
+                int(sequence_index),
+                spatial_indices[positions]
+            )
+            for position, sample in zip(
+                    positions,
+                    sequence_samples
+                ):
+                samples[int(position)] = sample
+        return samples
+
+    def __getitem__(self, index):
+        return self.__getitems__([index])[0]
 
     def inverse_transform_sst(self, value):
         return value * self.sst_std + self.sst_mean

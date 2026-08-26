@@ -28,6 +28,27 @@ class TrainingHistory:
         self.gradient_steps.append(step)
         self.gradient_norms.append(value)
 
+    def load(self):
+        path = os.path.join(
+            self.output_dir,
+            "training_curves.npz"
+        )
+        if not os.path.isfile(path):
+            return
+        with np.load(path) as history:
+            self.loss_steps = history[
+                "loss_steps"
+            ].astype(np.int64).tolist()
+            self.loss_values = history[
+                "loss_values"
+            ].astype(np.float32).tolist()
+            self.gradient_steps = history[
+                "gradient_steps"
+            ].astype(np.int64).tolist()
+            self.gradient_norms = history[
+                "gradient_norms"
+            ].astype(np.float32).tolist()
+
     def save(self):
         os.makedirs(self.output_dir, exist_ok=True)
         np.savez(
@@ -122,6 +143,80 @@ class CheckpointManager:
             return model.module
         return model
 
+    @staticmethod
+    def capture_random_state():
+        cuda_random_state = []
+        if torch.cuda.is_available():
+            cuda_random_state = torch.cuda.get_rng_state_all()
+        return {
+            "torch": torch.get_rng_state(),
+            "cuda": cuda_random_state,
+            "numpy": np.random.get_state(),
+            "python": random.getstate()
+        }
+
+    @staticmethod
+    def restore_random_state(random_state):
+        torch.set_rng_state(
+            random_state["torch"].cpu()
+        )
+        if (
+                torch.cuda.is_available()
+                and random_state["cuda"]
+            ):
+            torch.cuda.set_rng_state_all(
+                [
+                    state.cpu()
+                    for state in random_state["cuda"]
+                ]
+            )
+        np.random.set_state(random_state["numpy"])
+        random.setstate(random_state["python"])
+
+    def load(
+            self,
+            path,
+            model,
+            optimizer,
+            scheduler,
+            scaler,
+            device,
+            rank,
+        ):
+        if not os.path.isfile(path):
+            raise FileNotFoundError(path)
+        checkpoint = torch.load(
+            path,
+            map_location=device,
+            weights_only=False
+        )
+        self.unwrap_model(model).load_state_dict(
+            checkpoint["model"]
+        )
+        optimizer.load_state_dict(
+            checkpoint["optimizer"]
+        )
+        scheduler.load_state_dict(
+            checkpoint["scheduler"]
+        )
+        scaler.load_state_dict(checkpoint["scaler"])
+        random_states = checkpoint.get("random_states")
+        if random_states and rank < len(random_states):
+            self.restore_random_state(
+                random_states[rank]
+            )
+        elif rank == 0:
+            legacy_random_state = {
+                "torch": checkpoint["torch_random_state"],
+                "cuda": checkpoint["cuda_random_state"],
+                "numpy": checkpoint["numpy_random_state"],
+                "python": checkpoint["python_random_state"]
+            }
+            self.restore_random_state(
+                legacy_random_state
+            )
+        return checkpoint
+
     def save(
             self,
             path,
@@ -133,8 +228,10 @@ class CheckpointManager:
             global_step,
             train_loss,
             dataset,
+            random_states,
         ):
         normalization = NormalizationState.from_dataset(dataset)
+        main_random_state = random_states[0]
         checkpoint = {
             "model": self.unwrap_model(model).state_dict(),
             "optimizer": optimizer.state_dict(),
@@ -145,10 +242,11 @@ class CheckpointManager:
             "train_loss": train_loss,
             "normalization": normalization,
             "config": self.config.model.to_checkpoint(),
-            "torch_random_state": torch.get_rng_state(),
-            "cuda_random_state": torch.cuda.get_rng_state_all(),
-            "numpy_random_state": np.random.get_state(),
-            "python_random_state": random.getstate()
+            "random_states": random_states,
+            "torch_random_state": main_random_state["torch"],
+            "cuda_random_state": main_random_state["cuda"],
+            "numpy_random_state": main_random_state["numpy"],
+            "python_random_state": main_random_state["python"]
         }
         torch.save(checkpoint, path)
         NormalizationState.save(
