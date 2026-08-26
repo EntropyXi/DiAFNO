@@ -14,7 +14,8 @@ from torch.utils.data import DataLoader, random_split
 from torch.optim.lr_scheduler import CosineAnnealingLR
 # from YourDataset import YourDataset  # Import your custom dataset here
 from tqdm import tqdm
-from torch.cuda.amp import autocast, GradScaler
+from torch.cuda.amp import GradScaler
+from torch.amp import autocast
 # from torchinfo import summary
 from einops import rearrange
 from utilities3 import *
@@ -193,7 +194,7 @@ for ep in range(num_epochs):
         yy = rearrange(yy, "bs x y z c -> bs c x y z")
 
         optimizer.zero_grad()
-        with autocast():
+        with autocast("cuda"):
             loss = model(yy.to(device), xx.to(device))
         scaler.scale(loss).backward()
         scaler.step(optimizer)
@@ -218,7 +219,7 @@ for ep in range(num_epochs):
 
             xx = rearrange(xx, "bs x y z c -> bs c x y z")
 
-            with autocast():
+            with autocast("cuda"):
                 
                 pred = model.sample(xx.to(device))
                 pred = rearrange(pred, "bs c x y z -> bs x y z c", bs = batch_size)

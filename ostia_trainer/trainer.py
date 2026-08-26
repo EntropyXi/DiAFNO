@@ -6,7 +6,8 @@ import torch
 import torch.distributed as dist
 import torch.optim as optim
 
-from torch.cuda.amp import GradScaler, autocast
+from torch.cuda.amp import GradScaler
+from torch.amp import autocast
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from tqdm import tqdm
@@ -208,7 +209,7 @@ class OSTIATrainer:
             if self.runtime.distributed and not should_update:
                 sync_context = self.model.no_sync()
             with sync_context:
-                with autocast(enabled=self.amp_enabled):
+                with autocast("cuda", enabled=self.amp_enabled):
                     loss = self.model(
                         target,
                         condition,

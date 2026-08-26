@@ -1,5 +1,5 @@
 import torch
-from torch.cuda.amp import autocast
+from torch.amp import autocast
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
@@ -249,7 +249,7 @@ class OSTIAInferencer:
                 target_mask
             )
             self.check_condition(condition)
-            with autocast(enabled=self.amp_enabled):
+            with autocast("cuda", enabled=self.amp_enabled):
                 prediction, members = (
                     self._predict_ensemble(
                         condition,
