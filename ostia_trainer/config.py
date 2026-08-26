@@ -65,11 +65,11 @@ class OSTIATrainingConfig:
     resume_path: Optional[str] = None
     model: OSTIAModelConfig = field(default_factory=OSTIAModelConfig)
     num_epochs: int = 35
-    samples_per_epoch: int = 7040
-    # batch_per_gpu=16 x 2 GPUs -> global batch 32
-    # 35 epochs x 7040 samples -> about 50 training hours
+    samples_per_epoch: int = 31200
+    # batch_per_gpu=16 x gradient_accumulation=2
+    # -> effective batch 32 on one GPU, about 55 training hours
     batch_per_gpu: int = 16
-    gradient_accumulation: int = 1
+    gradient_accumulation: int = 2
     learning_rate: float = 2e-4
     min_learning_rate: float = 1e-6
     weight_decay: float = 1e-4
