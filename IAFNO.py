@@ -15,6 +15,8 @@ import torch.nn.functional as F
 import numpy as np
 from torchvision import transforms
 
+import matplotlib
+matplotlib.use("Agg")  # 必须在 pyplot 导入前设置，避免服务器 DISPLAY 环境下卡住
 import matplotlib.pyplot as plt
 from utilities3 import *
 
@@ -30,8 +32,8 @@ import os
 from einops import rearrange
 from timm.models.layers import DropPath, trunc_normal_
 
-torch.manual_seed(123)
-np.random.seed(123)
+# 全局 RNG 种子由训练器 set_random_seed(seed + rank) 统一管理，
+# 不在此处硬编码，避免 import 时污染调用方的种子体系
 
 ################################################################################################################################
 
@@ -279,7 +281,7 @@ class IAFNODiff(nn.Module):
         self.blocks = nn.ModuleList([
             Block(
                 nlayer, dim, patch_size, embed_dim, hidden_size_factor, num_blocks, self.model_in_chans
-            ).cuda()
+            )
             for i in range(self.ex_layer)
         ])
 
@@ -311,7 +313,7 @@ class IAFNODiff(nn.Module):
         x = x + self.pos_embed
         x = self.pos_drop(x)
         
-        if (self.ex_layer!=1 & self.nlayer==1):
+        if self.ex_layer != 1 and self.nlayer == 1:
             for j in range(self.ex_layer):
                 x = self.blocks[j](x)
         else:

@@ -70,7 +70,8 @@ def launch():
     ]
     print(
         "Smoke run: 2 visible GPUs, "
-        "500 total samples, 250 per GPU"
+        "2000 total samples, 1000 per GPU, "
+        "250 optimizer steps per GPU (batch 4)"
     )
     subprocess.run(
         command,
@@ -91,10 +92,10 @@ def train():
     )
     config.output_dir = "./experiments/ostia_smoke_2gpu"
     config.num_epochs = 1
-    config.samples_per_epoch = 500
-    config.batch_per_gpu = 1
+    config.samples_per_epoch = 2000
+    config.batch_per_gpu = 4
     config.gradient_accumulation = 1
-    config.num_workers = 0
+    config.num_workers = 2
     config.checkpoint_interval = 1
     config.use_amp = True
     OSTIATrainer(config).train()
