@@ -1,14 +1,4 @@
-from ostia_trainer.main import main
-from ostia_trainer import (
-    OSTIATrainer,
-    OSTIATrainingConfig
-)
-
-__all__ = [
-    "OSTIATrainer",
-    "OSTIATrainingConfig",
-    "main"
-]
+from diafno.training.main import main
 
 
 if __name__ == "__main__":

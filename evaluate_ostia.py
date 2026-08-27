@@ -1,4 +1,4 @@
-from diafno.inference.main import main
+from diafno.evaluation.main import main
 
 
 if __name__ == "__main__":

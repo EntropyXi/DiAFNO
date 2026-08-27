@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+.vscode/
+.venv/
+venv/
+experiments/
+inference_results/
+evaluation_metrics.json
+*.h5
+*.nc
+*.pth
+*.log
