@@ -69,7 +69,7 @@ class OSTIAEvaluator:
         result = {
             "num_samples": num_samples,
             "overall": overall.compute(),
-            "by_lead_week": {
+            "by_lead_day": {
                 str(index + 1): metrics.compute()
                 for index, metrics in enumerate(by_lead)
             }

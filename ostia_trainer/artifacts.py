@@ -191,21 +191,38 @@ class CheckpointManager:
             weights_only=False
         )
         checkpoint_config = checkpoint.get("config", {})
-        required_time_fields = (
+        daily_time_fields = (
+            "input_days",
+            "output_days"
+        )
+        legacy_time_fields = (
             "input_months",
             "output_months"
         )
-        if not all(
+        if all(
                 field in checkpoint_config
-                for field in required_time_fields
+                for field in daily_time_fields
             ):
+            checkpoint_time_config = {
+                field: checkpoint_config[field]
+                for field in daily_time_fields
+            }
+        elif all(
+                field in checkpoint_config
+                for field in legacy_time_fields
+            ):
+            checkpoint_time_config = {
+                "input_days": checkpoint_config["input_months"],
+                "output_days": checkpoint_config["output_months"]
+            }
+        else:
             raise ValueError(
                 "checkpoint uses the old weekly time indexing; "
-                "monthly OSTIA training must start without --resume"
+                "daily OSTIA training must start without --resume"
             )
-        for field in required_time_fields:
+        for field in daily_time_fields:
             expected = getattr(self.config.model, field)
-            actual = checkpoint_config[field]
+            actual = checkpoint_time_config[field]
             if actual != expected:
                 raise ValueError(
                     f"checkpoint {field}={actual} does not match "

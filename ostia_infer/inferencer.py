@@ -3,7 +3,7 @@ from torch.amp import autocast
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from ostia_dataset import OSTIAMonthlyDataset
+from ostia_dataset import OSTIADailyDataset
 
 from .model import InferenceModelLoader
 from .writer import InferenceSampleWriter
@@ -44,11 +44,11 @@ class OSTIAInferencer:
             device=self.device,
             sampling_steps=self.config.sampling_steps
         )
-        self.dataset = OSTIAMonthlyDataset(
+        self.dataset = OSTIADailyDataset(
             h5_path=self.config.h5_path,
             split=self.config.split,
-            input_months=self.model_config.input_months,
-            output_months=self.model_config.output_months,
+            input_days=self.model_config.input_days,
+            output_days=self.model_config.output_days,
             condition_mode=self.config.condition_mode
         )
         loader_options = {

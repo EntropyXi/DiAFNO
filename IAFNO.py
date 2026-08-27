@@ -237,8 +237,8 @@ class IAFNODiff(nn.Module):
             patch_size, # (8, 8, 1) 每个 patch 再被切成小块
             embed_dim, # 每个小 patch 被映射为多少维的特征 128
             num_blocks, # AFNO 在通道维度上划分的频率块数量
-            cond_chans, # 输入通道数 7个月SST + 一个mask = 8
-            target_chans, # 输出通道数 未来15个月SST
+            cond_chans, # 输入通道数 7天SST + 一个mask = 8
+            target_chans, # 输出通道数 未来15天SST
             ex_layer, # 
             nlayer, # layer 执行多少轮
             hidden_size_factor, # AFNO 每个频率块内部的通道扩张倍数
