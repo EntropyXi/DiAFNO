@@ -9,8 +9,8 @@ from IAFNO import IAFNODiff
 
 @dataclass
 class OSTIAModelConfig:
-    input_weeks: int = 7
-    output_weeks: int = 15
+    input_months: int = 7
+    output_months: int = 15
     cond_chans: int = 8
     target_chans: int = 15
     image_size: Tuple[int, int, int] = (448, 448, 1)
@@ -25,6 +25,14 @@ class OSTIAModelConfig:
 
     @classmethod
     def from_checkpoint(cls, config):
+        if not all(
+                key in config
+                for key in ("input_months", "output_months")
+            ):
+            raise ValueError(
+                "checkpoint uses the old weekly time indexing and "
+                "cannot be used for monthly OSTIA inference"
+            )
         field_names = {item.name for item in fields(cls)}
         values = {
             key: value

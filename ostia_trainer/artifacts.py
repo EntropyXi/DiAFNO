@@ -190,6 +190,27 @@ class CheckpointManager:
             map_location=device,
             weights_only=False
         )
+        checkpoint_config = checkpoint.get("config", {})
+        required_time_fields = (
+            "input_months",
+            "output_months"
+        )
+        if not all(
+                field in checkpoint_config
+                for field in required_time_fields
+            ):
+            raise ValueError(
+                "checkpoint uses the old weekly time indexing; "
+                "monthly OSTIA training must start without --resume"
+            )
+        for field in required_time_fields:
+            expected = getattr(self.config.model, field)
+            actual = checkpoint_config[field]
+            if actual != expected:
+                raise ValueError(
+                    f"checkpoint {field}={actual} does not match "
+                    f"current {field}={expected}"
+                )
         self.unwrap_model(model).load_state_dict(
             checkpoint["model"]
         )

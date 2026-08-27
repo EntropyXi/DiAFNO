@@ -9,8 +9,8 @@ from IAFNO import IAFNODiff
 
 @dataclass
 class OSTIAModelConfig:
-    input_weeks: int = 7
-    output_weeks: int = 15
+    input_months: int = 7
+    output_months: int = 15
     cond_chans: int = 8
     target_chans: int = 15
     image_size: Tuple[int, int, int] = (448, 448, 1)
@@ -61,7 +61,7 @@ class OSTIAModelConfig:
 class OSTIATrainingConfig:
     seed: int = 123
     train_h5_path: str = "/data/exam_preprocessed_data/zzx/ocean_temperature_data_patched.h5"
-    output_dir: str = "./experiments/ostia_7to15"
+    output_dir: str = "./experiments/ostia_7month_to15month"
     resume_path: Optional[str] = None
     model: OSTIAModelConfig = field(default_factory=OSTIAModelConfig)
     num_epochs: int = 35

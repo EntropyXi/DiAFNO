@@ -6,7 +6,7 @@ import torch
 from torch.utils.data import Dataset
 
 
-class OSTIAWeeklyDataset(Dataset):
+class OSTIAMonthlyDataset(Dataset):
     split_ranges = {
         "train": (0.0, 0.7),
         "val": (0.7, 0.9),
@@ -17,8 +17,8 @@ class OSTIAWeeklyDataset(Dataset):
             self,
             h5_path,
             split="train",
-            input_weeks=7,
-            output_weeks=15,
+            input_months=7,
+            output_months=15,
             condition_mode="sst_mask",
         ):
         if split not in self.split_ranges:
@@ -26,9 +26,9 @@ class OSTIAWeeklyDataset(Dataset):
                 f"split must be one of {tuple(self.split_ranges)}, "
                 f"but got {split}"
             )
-        if input_weeks < 1 or output_weeks < 1:
+        if input_months < 1 or output_months < 1:
             raise ValueError(
-                "input_weeks and output_weeks must be positive"
+                "input_months and output_months must be positive"
             )
         if condition_mode not in ("sst", "sst_mask"):
             raise ValueError(
@@ -36,14 +36,12 @@ class OSTIAWeeklyDataset(Dataset):
             )
         self.h5_path = os.path.abspath(h5_path)
         self.split = split
-        self.input_weeks = input_weeks
-        self.output_weeks = output_weeks
-        self.sequence_weeks = input_weeks + output_weeks
+        self.input_months = input_months
+        self.output_months = output_months
+        self.sequence_months = input_months + output_months
         self.condition_mode = condition_mode
-        self.week_stride_days = 7
-        self.week_offsets = (
-            np.arange(self.sequence_weeks, dtype=np.int64)
-            * self.week_stride_days
+        self.month_offsets = (
+            np.arange(self.sequence_months, dtype=np.int64)
         )
         self._h5_file = None
         self._h5_pid = None
@@ -54,7 +52,7 @@ class OSTIAWeeklyDataset(Dataset):
         self.normalization = {
             "sst_mean": self.sst_mean,
             "sst_std": self.sst_std,
-            "weekly_stride_days": self.week_stride_days,
+            "temporal_stride_months": 1,
             "source": "training_split_sample"
         }
 
@@ -99,42 +97,42 @@ class OSTIAWeeklyDataset(Dataset):
                     left = middle + 1
                 else:
                     right = middle
-            self.samples_per_day = left
-            if self.num_rows % self.samples_per_day != 0:
+            self.samples_per_month = left
+            if self.num_rows % self.samples_per_month != 0:
                 raise ValueError(
-                    "HDF5 rows do not contain complete daily windows"
+                    "HDF5 rows do not contain complete monthly windows"
                 )
-            self.num_days = (
-                self.num_rows // self.samples_per_day
+            self.num_months = (
+                self.num_rows // self.samples_per_month
             )
             if int(time[-1]) != (
-                self.first_time + self.num_days - 1
+                self.first_time + self.num_months - 1
             ):
                 raise ValueError(
-                    "time values must be consecutive daily indices"
+                    "time values must be consecutive monthly indices"
                 )
             self.chunk_rows = (
                 sst.chunks[0] if sst.chunks else 1
             )
             attrs = dict(h5_file.attrs)
-        self.total_weeks = self.num_days // self.week_stride_days
+        self.total_months = self.num_months
         split_start, split_end = self.split_ranges[self.split]
-        self.split_start_week = int(
-            self.total_weeks * split_start
+        self.split_start_month = int(
+            self.total_months * split_start
         )
-        self.split_end_week = int(
-            self.total_weeks * split_end
+        self.split_end_month = int(
+            self.total_months * split_end
         )
         self.sequences_per_window = (
-            self.split_end_week
-            - self.split_start_week
-            - self.sequence_weeks
+            self.split_end_month
+            - self.split_start_month
+            - self.sequence_months
             + 1
         )
         if self.sequences_per_window < 1:
             raise ValueError(
                 f"{self.split} split is shorter than "
-                f"{self.sequence_weeks} weeks"
+                f"{self.sequence_months} months"
             )
         self._file_sst_mean = attrs.get("sst_mean")
         self._file_sst_std = attrs.get("sst_std")
@@ -158,19 +156,18 @@ class OSTIAWeeklyDataset(Dataset):
                 float(self._file_sst_mean),
                 float(self._file_sst_std)
             )
-        train_end_week = int(
-            self.total_weeks
+        train_end_month = int(
+            self.total_months
             * self.split_ranges["train"][1]
         )
         train_end_row = min(
-            train_end_week
-            * self.week_stride_days
-            * self.samples_per_day,
+            train_end_month
+            * self.samples_per_month,
             self.num_rows
         )
         block_rows = min(
             self.chunk_rows,
-            self.samples_per_day
+            self.samples_per_month
         )
         block_count = 8
         max_start = max(0, train_end_row - block_rows)
@@ -238,7 +235,7 @@ class OSTIAWeeklyDataset(Dataset):
     def __len__(self):
         return (
             self.sequences_per_window
-            * self.samples_per_day
+            * self.samples_per_month
         )
 
     def _normalize_index(self, index):
@@ -253,19 +250,18 @@ class OSTIAWeeklyDataset(Dataset):
             sequence_index,
             spatial_indices,
         ):
-        start_week = (
-            self.split_start_week + sequence_index
+        start_month = (
+            self.split_start_month + sequence_index
         )
-        days = (
-            start_week * self.week_stride_days
-            + self.week_offsets
+        months = (
+            start_month + self.month_offsets
         )
         unique_spatial, restore = np.unique(
             spatial_indices,
             return_inverse=True
         )
         rows = (
-            days[:, None] * self.samples_per_day
+            months[:, None] * self.samples_per_month
             + unique_spatial[None, :]
         ).reshape(-1)
         h5_file = self._get_file()
@@ -279,17 +275,17 @@ class OSTIAWeeklyDataset(Dataset):
         )
         batch_size = unique_spatial.size
         sst = sst.reshape(
-            self.sequence_weeks,
+            self.sequence_months,
             batch_size,
             *self.image_shape
         ).transpose(1, 0, 2, 3)[restore]
         mask = mask.reshape(
-            self.sequence_weeks,
+            self.sequence_months,
             batch_size,
             *self.image_shape
         ).transpose(1, 0, 2, 3)[restore]
         times = (
-            self.first_time + days
+            self.first_time + months
         ).astype(
             np.int64,
             copy=False
@@ -309,10 +305,10 @@ class OSTIAWeeklyDataset(Dataset):
             ):
             sample_sst = sst[batch_index]
             sample_valid = valid[batch_index]
-            input_sst = sample_sst[:self.input_weeks]
-            target = sample_sst[self.input_weeks:]
+            input_sst = sample_sst[:self.input_months]
+            target = sample_sst[self.input_months:]
             target_mask = sample_valid[
-                self.input_weeks:
+                self.input_months:
             ].astype(
                 np.float32,
                 copy=False
@@ -322,7 +318,7 @@ class OSTIAWeeklyDataset(Dataset):
                     (
                         input_sst,
                         sample_valid[
-                            self.input_weeks - 1
+                            self.input_months - 1
                         ][None].astype(
                             np.float32,
                             copy=False
@@ -346,7 +342,7 @@ class OSTIAWeeklyDataset(Dataset):
                 "spatial_index": np.int64(spatial_index),
                 "input_start_time": np.int64(times[0]),
                 "target_start_time": np.int64(
-                    times[self.input_weeks]
+                    times[self.input_months]
                 ),
                 "target_end_time": np.int64(times[-1])
             }
@@ -371,10 +367,10 @@ class OSTIAWeeklyDataset(Dataset):
         if indices.size == 0:
             return []
         sequence_indices = (
-            indices // self.samples_per_day
+            indices // self.samples_per_month
         )
         spatial_indices = (
-            indices % self.samples_per_day
+            indices % self.samples_per_month
         )
         samples = [None] * indices.size
         for sequence_index in np.unique(sequence_indices):

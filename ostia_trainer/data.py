@@ -5,7 +5,7 @@ import torch
 
 from torch.utils.data import DataLoader, Sampler
 
-from ostia_dataset import OSTIAWeeklyDataset
+from ostia_dataset import OSTIAMonthlyDataset
 
 
 def seed_worker(worker_id):
@@ -28,7 +28,7 @@ class DistributedSpatialBlockSampler(Sampler):
         self.sequences_per_window = (
             dataset.sequences_per_window
         )
-        self.samples_per_day = dataset.samples_per_day
+        self.samples_per_month = dataset.samples_per_month
         self.batch_size = batch_size
         self.num_replicas = num_replicas
         self.rank = rank
@@ -37,11 +37,11 @@ class DistributedSpatialBlockSampler(Sampler):
         if self.batch_size < 1:
             raise ValueError("batch_size must be positive")
         self.blocks_per_sequence = (
-            self.samples_per_day // self.batch_size
+            self.samples_per_month // self.batch_size
         )
         if self.blocks_per_sequence < 1:
             raise ValueError(
-                "batch_size is larger than samples_per_day"
+                "batch_size is larger than samples_per_month"
             )
         self.available_blocks = (
             self.sequences_per_window
@@ -87,7 +87,7 @@ class DistributedSpatialBlockSampler(Sampler):
         ]
         spatial_offset = (
             self.epoch * self.batch_size
-            % self.samples_per_day
+            % self.samples_per_month
         )
         indices = []
         for block_index in block_indices.tolist():
@@ -98,14 +98,14 @@ class DistributedSpatialBlockSampler(Sampler):
             spatial_start = (
                 spatial_offset
                 + spatial_block * self.batch_size
-            ) % self.samples_per_day
+            ) % self.samples_per_month
             spatial_indices = (
                 spatial_start
                 + np.arange(self.batch_size)
-            ) % self.samples_per_day
+            ) % self.samples_per_month
             indices.extend(
                 (
-                    sequence_index * self.samples_per_day
+                    sequence_index * self.samples_per_month
                     + spatial_indices
                 ).tolist()
             )
@@ -125,11 +125,11 @@ class OSTIATrainingData:
 
     def setup(self):
         model_config = self.config.model
-        self.dataset = OSTIAWeeklyDataset(
+        self.dataset = OSTIAMonthlyDataset(
             h5_path=self.config.train_h5_path,
             split=self.config.split,
-            input_weeks=model_config.input_weeks,
-            output_weeks=model_config.output_weeks,
+            input_months=model_config.input_months,
+            output_months=model_config.output_months,
             condition_mode=self.config.condition_mode
         )
         self.sampler = DistributedSpatialBlockSampler(
