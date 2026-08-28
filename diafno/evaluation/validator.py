@@ -176,10 +176,13 @@ class OSTIAValidator:
             generator = torch.Generator(
                 device=self.device
             ).manual_seed(seed)
-            noised = probe_target + probe_sigma * torch.randn_like(
-                probe_target,
+            noise = torch.randn(
+                probe_target.shape,
+                device=probe_target.device,
+                dtype=probe_target.dtype,
                 generator=generator
             )
+            noised = probe_target + probe_sigma * noise
             denoised = self.model.preconditioned_network_forward(
                 noised,
                 probe_sigma,
