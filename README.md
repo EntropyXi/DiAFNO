@@ -68,7 +68,7 @@ intermediate predictions. By default, 200 validation samples are selected
 uniformly and reproducibly from the full validation split:
 
 ```bash
-CUDA_VISIBLE_DEVICES=2 python -u validate_ostia.py --checkpoint experiments/ostia_7day_to15day/latest.pth --h5-path /data/exam_preprocessed_data/zzx/ocean_temperature_data_patched.h5 --output-path validation_metrics.json --device cuda:0
+CUDA_VISIBLE_DEVICES=2 python -u validate_ostia.py --checkpoint experiments/ostia_7day_to15day/latest.pth --h5-path /data2/user/zzx/exam_preprocessed_data/ocean_temperature_data_patched.h5 --output-path validation_metrics.json --device cuda:0
 ```
 
 Use `--max-samples N` to change the sample count or `--all-samples` to evaluate
@@ -78,7 +78,7 @@ physical GPU is exposed to the process as `cuda:0`.
 To save predictions before evaluating them:
 
 ```bash
-python -u infer_ostia.py --checkpoint experiments/ostia_7day_to15day/latest.pth --h5-path /data/exam_preprocessed_data/zzx/ocean_temperature_data_patched.h5 --output-dir inference_results
+python -u infer_ostia.py --checkpoint experiments/ostia_7day_to15day/latest.pth --h5-path /data2/user/zzx/exam_preprocessed_data/ocean_temperature_data_patched.h5 --output-dir inference_results
 ```
 
 ```bash

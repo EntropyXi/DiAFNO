@@ -87,7 +87,7 @@ def train():
 
     config = OSTIATrainingConfig()
     config.train_h5_path = (
-        "/data/exam_preprocessed_data/zzx/"
+        "/data2/user/zzx/exam_preprocessed_data/"
         "ocean_temperature_data_patched.h5"
     )
     config.output_dir = "./experiments/ostia_daily_smoke"

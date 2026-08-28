@@ -8,7 +8,7 @@ from ..models.config import OSTIAModelConfig
 @dataclass
 class OSTIATrainingConfig:
     seed: int = 123
-    train_h5_path: str = "/data/exam_preprocessed_data/zzx/ocean_temperature_data_patched.h5"
+    train_h5_path: str = "/data2/user/zzx/exam_preprocessed_data/ocean_temperature_data_patched.h5"
     output_dir: str = "./experiments/ostia_7day_to15day_residual"
     resume_path: Optional[str] = None
     init_from: Optional[str] = None
