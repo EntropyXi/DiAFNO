@@ -245,6 +245,25 @@ class OSTIADailyDataset(Dataset):
             raise IndexError(index)
         return index
 
+    @staticmethod
+    def _contiguous_runs(indices):
+        if indices.size == 0:
+            return []
+        starts = [0]
+        ends = []
+        for index in range(1, indices.size):
+            if indices[index] != indices[index - 1] + 1:
+                ends.append(index)
+                starts.append(index)
+        ends.append(indices.size)
+        return [
+            (
+                int(indices[start]),
+                int(indices[end - 1]) + 1
+            )
+            for start, end in zip(starts, ends)
+        ]
+
     def _load_sequence_batch(
             self,
             sequence_index,
@@ -260,30 +279,57 @@ class OSTIADailyDataset(Dataset):
             spatial_indices,
             return_inverse=True
         )
-        rows = (
-            days[:, None] * self.samples_per_day
-            + unique_spatial[None, :]
-        ).reshape(-1)
+        runs = self._contiguous_runs(unique_spatial)
         h5_file = self._get_file()
-        sst = np.asarray(
-            h5_file["sst"][rows, 0],
-            dtype=np.float32
-        )
-        mask = np.asarray(
-            h5_file["mask"][rows],
-            dtype=np.uint8
-        )
-        batch_size = unique_spatial.size
-        sst = sst.reshape(
-            self.sequence_days,
-            batch_size,
-            *self.image_shape
-        ).transpose(1, 0, 2, 3)[restore]
-        mask = mask.reshape(
-            self.sequence_days,
-            batch_size,
-            *self.image_shape
-        ).transpose(1, 0, 2, 3)[restore]
+        sst_days = []
+        for day in days:
+            base = int(day) * self.samples_per_day
+            sst_parts = [
+                np.asarray(
+                    h5_file["sst"][
+                        base + start:base + end,
+                        0
+                    ],
+                    dtype=np.float32
+                )
+                for start, end in runs
+            ]
+            sst_days.append(
+                sst_parts[0] if len(sst_parts) == 1
+                else np.concatenate(sst_parts, axis=0)
+            )
+        sst = np.stack(
+            sst_days,
+            axis=0
+        ).transpose(1, 0, 2, 3)
+        del sst_days
+        mask_days = []
+        for day in days:
+            base = int(day) * self.samples_per_day
+            mask_parts = [
+                np.asarray(
+                    h5_file["mask"][
+                        base + start:base + end
+                    ],
+                    dtype=np.uint8
+                )
+                for start, end in runs
+            ]
+            mask_days.append(
+                mask_parts[0] if len(mask_parts) == 1
+                else np.concatenate(mask_parts, axis=0)
+            )
+        mask = np.stack(
+            mask_days,
+            axis=0
+        ).transpose(1, 0, 2, 3)
+        del mask_days
+        if not np.array_equal(
+                unique_spatial,
+                spatial_indices
+            ):
+            sst = sst[restore]
+            mask = mask[restore]
         times = (
             self.first_time + days
         ).astype(
