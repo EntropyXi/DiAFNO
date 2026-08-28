@@ -6,6 +6,7 @@ venv/
 experiments/
 inference_results/
 evaluation_metrics.json
+validation_metrics*.json
 *.h5
 *.nc
 *.pth

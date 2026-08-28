@@ -15,11 +15,14 @@ class OSTIAEvaluator:
     @staticmethod
     def ensure_batch_axis(value):
         value = np.asarray(value)
+        if value.ndim in (4, 5) and value.shape[-1] == 1:
+            value = value[..., 0]
         if value.ndim == 3:
             return value[None, ...]
         if value.ndim != 4:
             raise ValueError(
-                f"Expected [lead, H, W] or [batch, lead, H, W], "
+                "Expected [lead,H,W], [lead,H,W,1], "
+                "[batch,lead,H,W] or [batch,lead,H,W,1], "
                 f"got {value.shape}"
             )
         return value

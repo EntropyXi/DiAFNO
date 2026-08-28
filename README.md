@@ -24,6 +24,7 @@ diafno/
 trainer_ostia.py
 infer_ostia.py
 evaluate_ostia.py
+validate_ostia.py
 smoke_ostia.py
 artifacts/smoke/ one retained smoke-test result
 ```
@@ -61,6 +62,20 @@ python -u smoke_ostia.py
 The script selects two idle GPUs and writes disposable output to `experiments/ostia_daily_smoke`.
 
 ## Inference and evaluation
+
+Estimate validation metrics directly from a checkpoint without saving
+intermediate predictions. By default, 200 validation samples are selected
+uniformly and reproducibly from the full validation split:
+
+```bash
+CUDA_VISIBLE_DEVICES=2 python -u validate_ostia.py --checkpoint experiments/ostia_7day_to15day/latest.pth --h5-path /data/exam_preprocessed_data/zzx/ocean_temperature_data_patched.h5 --output-path validation_metrics.json --device cuda:0
+```
+
+Use `--max-samples N` to change the sample count or `--all-samples` to evaluate
+the complete validation split. With `CUDA_VISIBLE_DEVICES=2`, the selected
+physical GPU is exposed to the process as `cuda:0`.
+
+To save predictions before evaluating them:
 
 ```bash
 python -u infer_ostia.py --checkpoint experiments/ostia_7day_to15day/latest.pth --h5-path /data/exam_preprocessed_data/zzx/ocean_temperature_data_patched.h5 --output-dir inference_results
