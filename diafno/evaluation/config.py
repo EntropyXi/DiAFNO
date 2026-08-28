@@ -13,7 +13,10 @@ class OSTIAValidationConfig:
     batch_size: int = 1
     num_workers: int = 2
     sampling_steps: Optional[int] = None
+    s_churn: Optional[float] = None
     ensemble_members: int = 1
+    prediction_mode: str = "model"
+    condition_ablation: str = "none"
     seed: int = 123
     device: str = "cuda:0"
     max_samples: Optional[int] = 200
@@ -30,7 +33,10 @@ class OSTIAValidationConfig:
             batch_size=args.batch_size,
             num_workers=args.num_workers,
             sampling_steps=args.sampling_steps,
+            s_churn=args.s_churn,
             ensemble_members=args.ensemble_members,
+            prediction_mode=args.prediction_mode,
+            condition_ablation=args.condition_ablation,
             seed=args.seed,
             device=args.device,
             max_samples=(
@@ -60,10 +66,21 @@ def build_validation_parser():
     parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument("--num-workers", type=int, default=2)
     parser.add_argument("--sampling-steps", type=int)
+    parser.add_argument("--s-churn", type=float)
     parser.add_argument(
         "--ensemble-members",
         type=int,
         default=1
+    )
+    parser.add_argument(
+        "--prediction-mode",
+        choices=("model", "persistence"),
+        default="model"
+    )
+    parser.add_argument(
+        "--condition-ablation",
+        choices=("none", "zero_sst", "reverse_sst"),
+        default="none"
     )
     parser.add_argument("--seed", type=int, default=123)
     parser.add_argument("--device", default="cuda:0")

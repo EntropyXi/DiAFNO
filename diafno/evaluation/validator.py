@@ -75,6 +75,11 @@ class OSTIAValidator:
             )
         if self.config.batch_size < 1:
             raise ValueError("batch_size must be positive")
+        if (
+                self.config.s_churn is not None
+                and self.config.s_churn < 0
+            ):
+            raise ValueError("s_churn must be non-negative")
         device = self.config.device
         if (
                 device.startswith("cuda")
@@ -92,6 +97,8 @@ class OSTIAValidator:
             device=self.device,
             sampling_steps=self.config.sampling_steps
         )
+        if self.config.s_churn is not None:
+            self.model.S_churn = self.config.s_churn
         self.dataset = OSTIADailyDataset(
             h5_path=self.config.h5_path,
             split=self.config.split,
@@ -123,7 +130,36 @@ class OSTIAValidator:
         )
         return self
 
+    def _ablate_condition(self, condition):
+        mode = self.config.condition_ablation
+        if mode == "none":
+            return condition
+        condition = condition.clone()
+        input_days = self.model_config.input_days
+        if mode == "zero_sst":
+            condition[:, :input_days] = 0
+        elif mode == "reverse_sst":
+            condition[:, :input_days] = torch.flip(
+                condition[:, :input_days],
+                dims=(1,)
+            )
+        return condition
+
     def _predict(self, condition, batch_index):
+        if self.config.prediction_mode == "persistence":
+            last_day = condition[
+                :,
+                self.model_config.input_days - 1:
+                self.model_config.input_days
+            ]
+            return last_day.repeat(
+                1,
+                self.model_config.output_days,
+                1,
+                1,
+                1
+            )
+        condition = self._ablate_condition(condition)
         predictions = []
         for member_index in range(
                 self.config.ensemble_members
@@ -233,8 +269,11 @@ class OSTIAValidator:
             ),
             "split": self.config.split,
             "num_samples": num_samples,
+            "prediction_mode": self.config.prediction_mode,
             "sampling_steps": self.sampling_steps,
+            "s_churn": self.model.S_churn,
             "ensemble_members": self.config.ensemble_members,
+            "condition_ablation": self.config.condition_ablation,
             "seed": self.config.seed,
             "overall": overall.compute(),
             "by_lead_day": {

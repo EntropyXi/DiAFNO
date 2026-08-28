@@ -14,6 +14,10 @@ class RunningSSTMetrics:
         self.sum_prediction_squared = 0.0
         self.sum_target_squared = 0.0
         self.sum_product = 0.0
+        self.prediction_min = math.inf
+        self.prediction_max = -math.inf
+        self.target_min = math.inf
+        self.target_max = -math.inf
 
     def update(self, prediction, target, mask):
         valid = (
@@ -35,6 +39,22 @@ class RunningSSTMetrics:
         self.sum_prediction_squared += float(np.square(prediction).sum())
         self.sum_target_squared += float(np.square(target).sum())
         self.sum_product += float((prediction * target).sum())
+        self.prediction_min = min(
+            self.prediction_min,
+            float(prediction.min())
+        )
+        self.prediction_max = max(
+            self.prediction_max,
+            float(prediction.max())
+        )
+        self.target_min = min(
+            self.target_min,
+            float(target.min())
+        )
+        self.target_max = max(
+            self.target_max,
+            float(target.max())
+        )
 
     def compute(self):
         if self.count == 0:
@@ -44,6 +64,14 @@ class RunningSSTMetrics:
                 "bias": None,
                 "correlation": None,
                 "acc": None,
+                "prediction_mean": None,
+                "prediction_std": None,
+                "prediction_min": None,
+                "prediction_max": None,
+                "target_mean": None,
+                "target_std": None,
+                "target_min": None,
+                "target_max": None,
                 "valid_pixels": 0
             }
         covariance = (
@@ -67,6 +95,12 @@ class RunningSSTMetrics:
             if denominator > 0.0
             else None
         )
+        prediction_std = math.sqrt(
+            max(prediction_variance / self.count, 0.0)
+        )
+        target_std = math.sqrt(
+            max(target_variance / self.count, 0.0)
+        )
         return {
             "mae": self.sum_abs_error / self.count,
             "rmse": math.sqrt(
@@ -75,5 +109,15 @@ class RunningSSTMetrics:
             "bias": self.sum_error / self.count,
             "correlation": correlation,
             "acc": correlation,
+            "prediction_mean": (
+                self.sum_prediction / self.count
+            ),
+            "prediction_std": prediction_std,
+            "prediction_min": self.prediction_min,
+            "prediction_max": self.prediction_max,
+            "target_mean": self.sum_target / self.count,
+            "target_std": target_std,
+            "target_min": self.target_min,
+            "target_max": self.target_max,
             "valid_pixels": self.count
         }
