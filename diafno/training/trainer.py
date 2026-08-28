@@ -200,6 +200,16 @@ class OSTIATrainer:
             target_mask.to(**move_options)
         )
 
+    def _training_target(self, condition, target):
+        if self.config.model.target_mode == "absolute":
+            return target
+        last_day = condition[
+            :,
+            self.config.model.input_days - 1:
+            self.config.model.input_days
+        ]
+        return target - last_day
+
     def _train_epoch(self, epoch):
         self.model.train()
         self.data.sampler.set_epoch(epoch)
@@ -243,8 +253,12 @@ class OSTIATrainer:
                 sync_context = self.model.no_sync()
             with sync_context:
                 with autocast("cuda", enabled=self.amp_enabled):
+                    training_target = self._training_target(
+                        condition,
+                        target
+                    )
                     loss = self.model(
-                        target,
+                        training_target,
                         condition,
                         target_mask
                     )

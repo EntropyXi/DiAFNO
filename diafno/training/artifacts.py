@@ -228,6 +228,17 @@ class CheckpointManager:
                     f"checkpoint {field}={actual} does not match "
                     f"current {field}={expected}"
                 )
+        checkpoint_target_mode = checkpoint_config.get(
+            "target_mode",
+            "absolute"
+        )
+        if checkpoint_target_mode != self.config.model.target_mode:
+            raise ValueError(
+                "checkpoint target_mode="
+                f"{checkpoint_target_mode} does not match current "
+                f"target_mode={self.config.model.target_mode}; "
+                "residual training must start without --resume"
+            )
         self.unwrap_model(model).load_state_dict(
             checkpoint["model"]
         )

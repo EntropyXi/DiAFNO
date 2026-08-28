@@ -174,6 +174,13 @@ class OSTIAInferencer:
             )
             predictions.append(prediction)
         members = torch.stack(predictions, dim=0)
+        if self.model_config.target_mode == "residual":
+            last_day = condition[
+                :,
+                self.model_config.input_days - 1:
+                self.model_config.input_days
+            ]
+            members = members + last_day.unsqueeze(0)
         return members.mean(dim=0), members
 
     def _save_batch(

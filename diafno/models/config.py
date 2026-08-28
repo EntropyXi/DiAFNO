@@ -22,6 +22,7 @@ class OSTIAModelConfig:
     hidden_size_factor: int = 4
     sampling_steps: int = 16
     sigma_data: float = 1.0
+    target_mode: str = "absolute"
 
     def to_checkpoint(self):
         return asdict(self)
@@ -57,6 +58,10 @@ class OSTIAModelConfig:
         return cls(**values)
 
     def build_model(self, device, sampling_steps=None):
+        if self.target_mode not in ("absolute", "residual"):
+            raise ValueError(
+                "target_mode must be 'absolute' or 'residual'"
+            )
         resolved_steps = (
             self.sampling_steps
             if sampling_steps is None

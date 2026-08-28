@@ -159,6 +159,7 @@ class OSTIAValidator:
                 1,
                 1
             )
+        original_condition = condition
         condition = self._ablate_condition(condition)
         predictions = []
         for member_index in range(
@@ -176,10 +177,18 @@ class OSTIAValidator:
                     seed=seed
                 )
             )
-        return torch.stack(
+        prediction = torch.stack(
             predictions,
             dim=0
         ).mean(dim=0)
+        if self.model_config.target_mode == "residual":
+            last_day = original_condition[
+                :,
+                self.model_config.input_days - 1:
+                self.model_config.input_days
+            ]
+            prediction = prediction + last_day
+        return prediction
 
     @staticmethod
     def _without_depth_axis(value):

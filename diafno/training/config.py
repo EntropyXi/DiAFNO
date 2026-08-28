@@ -9,9 +9,14 @@ from ..models.config import OSTIAModelConfig
 class OSTIATrainingConfig:
     seed: int = 123
     train_h5_path: str = "/data/exam_preprocessed_data/zzx/ocean_temperature_data_patched.h5"
-    output_dir: str = "./experiments/ostia_7day_to15day"
+    output_dir: str = "./experiments/ostia_7day_to15day_residual"
     resume_path: Optional[str] = None
-    model: OSTIAModelConfig = field(default_factory=OSTIAModelConfig)
+    model: OSTIAModelConfig = field(
+        default_factory=lambda: OSTIAModelConfig(
+            sigma_data=0.15,
+            target_mode="residual"
+        )
+    )
     num_epochs: int = 35
     samples_per_epoch: int = 31200
     # batch_per_gpu=16 x gradient_accumulation=2
@@ -54,6 +59,11 @@ def build_parser():
     parser.add_argument("--prefetch-factor", type=int)
     parser.add_argument("--checkpoint-interval", type=int)
     parser.add_argument("--sampling-steps", type=int)
+    parser.add_argument(
+        "--target-mode",
+        choices=("absolute", "residual")
+    )
+    parser.add_argument("--sigma-data", type=float)
     parser.add_argument("--seed", type=int)
     parser.add_argument("--split")
     parser.add_argument("--condition-mode")
@@ -100,4 +110,8 @@ def training_config_from_args(args):
             setattr(config, field_name, value)
     if args.sampling_steps is not None:
         config.model.sampling_steps = args.sampling_steps
+    if args.target_mode is not None:
+        config.model.target_mode = args.target_mode
+    if args.sigma_data is not None:
+        config.model.sigma_data = args.sigma_data
     return config
