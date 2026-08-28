@@ -6,8 +6,7 @@ import torch
 import torch.distributed as dist
 import torch.optim as optim
 
-from torch.cuda.amp import GradScaler
-from torch.amp import autocast
+from torch.amp import GradScaler, autocast
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from tqdm import tqdm
@@ -89,6 +88,7 @@ class OSTIATrainer:
             and self.runtime.device.type == "cuda"
         )
         self.scaler = GradScaler(
+            "cuda",
             enabled=self.amp_enabled
         )
         self.optimizer.zero_grad(set_to_none=True)
