@@ -22,6 +22,12 @@ class OSTIAModelConfig:
     hidden_size_factor: int = 4
     sampling_steps: int = 16
     sigma_data: float = 1.0
+    # NOTE: keep these defaults at the legacy absolute-training values so that
+    # old checkpoints (which lack the fields) reproduce their original
+    # sampling schedule when validated with new code.
+    sigma_max: float = 80.0
+    sigma_min: float = 0.002
+    p_mean: float = -1.2
     target_mode: str = "absolute"
 
     def to_checkpoint(self):
@@ -89,7 +95,10 @@ class OSTIAModelConfig:
             image_size_h=self.image_size[0],
             image_size_w=self.image_size[1],
             image_size_z=self.image_size[2],
-            sigma_data=self.sigma_data
+            sigma_data=self.sigma_data,
+            sigma_max=self.sigma_max,
+            sigma_min=self.sigma_min,
+            P_mean=self.p_mean
         )
         return model.to(
             device=device,

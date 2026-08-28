@@ -145,6 +145,51 @@ class OSTIAValidator:
             )
         return condition
 
+    def _predict_probe(self, condition, target, batch_index):
+        """Fixed-sigma denoising probe that bypasses the sampler entirely.
+
+        D(noised, sigma, cond) with a tiny sigma approximates the learned
+        conditional mean E[x|cond]; used to discriminate "the denoiser never
+        learned the conditional mean" from "the sampler path is broken".
+        Residual mode re-anchors the probe target and output by the last
+        condition day.
+        """
+        probe_sigma = (
+            self.config.probe_sigma
+            if self.config.probe_sigma is not None
+            else 0.002
+        )
+        input_days = self.model_config.input_days
+        anchor = condition[:, input_days - 1:input_days]
+        probe_target = target
+        if self.model_config.target_mode == "residual":
+            probe_target = target - anchor
+        predictions = []
+        for member_index in range(
+                self.config.ensemble_members
+            ):
+            seed = (
+                self.config.seed
+                + batch_index * 1000
+                + member_index
+            )
+            generator = torch.Generator(
+                device=self.device
+            ).manual_seed(seed)
+            noised = probe_target + probe_sigma * torch.randn_like(
+                probe_target,
+                generator=generator
+            )
+            denoised = self.model.preconditioned_network_forward(
+                noised,
+                probe_sigma,
+                condition
+            )
+            if self.model_config.target_mode == "residual":
+                denoised = denoised + anchor
+            predictions.append(denoised)
+        return torch.stack(predictions, dim=0).mean(dim=0)
+
     def _predict(self, condition, batch_index):
         if self.config.prediction_mode == "persistence":
             last_day = condition[
@@ -250,10 +295,17 @@ class OSTIAValidator:
                 non_blocking=True
             )
             with autocast("cuda", enabled=self.amp_enabled):
-                prediction = self._predict(
-                    condition,
-                    batch_index
-                )
+                if self.config.prediction_mode == "probe":
+                    prediction = self._predict_probe(
+                        condition,
+                        target,
+                        batch_index
+                    )
+                else:
+                    prediction = self._predict(
+                        condition,
+                        batch_index
+                    )
             prediction = self._without_depth_axis(
                 self._inverse_transform(prediction)
             ).float().cpu().numpy()
@@ -279,6 +331,7 @@ class OSTIAValidator:
             "split": self.config.split,
             "num_samples": num_samples,
             "prediction_mode": self.config.prediction_mode,
+            "probe_sigma": self.config.probe_sigma,
             "sampling_steps": self.sampling_steps,
             "s_churn": self.model.S_churn,
             "ensemble_members": self.config.ensemble_members,

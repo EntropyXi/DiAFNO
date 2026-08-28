@@ -14,6 +14,7 @@ from tqdm import tqdm
 from .artifacts import CheckpointManager, TrainingHistory
 from .data import OSTIATrainingData
 from .runtime import DistributedRuntime, set_random_seed
+from ..models.config import OSTIAModelConfig
 
 
 class OSTIATrainer:
@@ -35,6 +36,13 @@ class OSTIATrainer:
         self.checkpoints = CheckpointManager(config)
 
     def setup(self):
+        if (
+                self.config.resume_path is not None
+                and self.config.init_from is not None
+        ):
+            raise ValueError(
+                "--resume and --init-from are mutually exclusive"
+            )
         self.runtime.setup()
         set_random_seed(
             self.config.seed,
@@ -52,6 +60,11 @@ class OSTIATrainer:
             self.runtime
         ).setup()
         self._build_training_components()
+        if (
+                self.config.resume_path is None
+                and self.config.init_from is not None
+        ):
+            self._init_from_checkpoint()
         self._resume_training()
 
     def _build_training_components(self):
@@ -92,6 +105,77 @@ class OSTIATrainer:
             enabled=self.amp_enabled
         )
         self.optimizer.zero_grad(set_to_none=True)
+
+    def _init_from_checkpoint(self):
+        """Load model weights only from another checkpoint (e.g. an
+        absolute-mode checkpoint reused for residual fine-tuning).
+
+        Optimizer/scheduler/scaler/random states are intentionally NOT
+        restored, so training starts from epoch 0 with a fresh schedule.
+        """
+        init_path = os.path.abspath(self.config.init_from)
+        checkpoint = torch.load(
+            init_path,
+            map_location="cpu",
+            weights_only=False
+        )
+        source_config = OSTIAModelConfig.from_checkpoint(
+            checkpoint["config"]
+        )
+        current = self.config.model
+        arch_fields = (
+            "input_days",
+            "output_days",
+            "cond_chans",
+            "target_chans",
+            "image_size",
+            "patch_size",
+            "embed_dim",
+            "num_blocks",
+            "explicit_layer",
+            "implicit_layer",
+            "hidden_size_factor"
+        )
+        mismatches = {
+            field: (getattr(source_config, field),
+                    getattr(current, field))
+            for field in arch_fields
+            if getattr(source_config, field) != getattr(current, field)
+        }
+        if mismatches:
+            raise ValueError(
+                "init-from architecture mismatch for fields "
+                f"(source, current): {mismatches}"
+            )
+        if float(source_config.sigma_data) != float(
+                current.sigma_data
+        ):
+            raise ValueError(
+                "init-from sigma_data mismatch: source "
+                f"{source_config.sigma_data} vs current "
+                f"{current.sigma_data}; pretrained weights are "
+                "incompatible with a different sigma_data"
+            )
+        try:
+            self.checkpoints.unwrap_model(
+                self.model
+            ).load_state_dict(
+                checkpoint["model"],
+                strict=True
+            )
+        except RuntimeError as error:
+            raise RuntimeError(
+                f"init-from {init_path} state_dict failed to load "
+                f"(source target_mode={source_config.target_mode}, "
+                f"current target_mode={current.target_mode}): {error}"
+            ) from error
+        if self.runtime.is_main_process:
+            print(
+                f"Initialized weights from {init_path} "
+                f"(source target_mode={source_config.target_mode}, "
+                f"current target_mode={current.target_mode})"
+            )
+        self.runtime.barrier()
 
     def _resume_training(self):
         resume_path = self.config.resume_path

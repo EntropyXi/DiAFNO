@@ -11,6 +11,7 @@ class OSTIATrainingConfig:
     train_h5_path: str = "/data/exam_preprocessed_data/zzx/ocean_temperature_data_patched.h5"
     output_dir: str = "./experiments/ostia_7day_to15day_residual"
     resume_path: Optional[str] = None
+    init_from: Optional[str] = None
     model: OSTIAModelConfig = field(
         default_factory=lambda: OSTIAModelConfig(
             sigma_data=0.15,
@@ -47,6 +48,7 @@ def build_parser():
         nargs="?",
         const="latest"
     )
+    parser.add_argument("--init-from")
     parser.add_argument("--num-epochs", type=int)
     parser.add_argument("--samples-per-epoch", type=int)
     parser.add_argument("--batch-per-gpu", type=int)
@@ -64,6 +66,9 @@ def build_parser():
         choices=("absolute", "residual")
     )
     parser.add_argument("--sigma-data", type=float)
+    parser.add_argument("--sigma-max", type=float)
+    parser.add_argument("--sigma-min", type=float)
+    parser.add_argument("--p-mean", type=float)
     parser.add_argument("--seed", type=int)
     parser.add_argument("--split")
     parser.add_argument("--condition-mode")
@@ -88,6 +93,7 @@ def training_config_from_args(args):
         "train_h5_path",
         "output_dir",
         "resume_path",
+        "init_from",
         "num_epochs",
         "samples_per_epoch",
         "batch_per_gpu",
@@ -114,4 +120,10 @@ def training_config_from_args(args):
         config.model.target_mode = args.target_mode
     if args.sigma_data is not None:
         config.model.sigma_data = args.sigma_data
+    if args.sigma_max is not None:
+        config.model.sigma_max = args.sigma_max
+    if args.sigma_min is not None:
+        config.model.sigma_min = args.sigma_min
+    if args.p_mean is not None:
+        config.model.p_mean = args.p_mean
     return config

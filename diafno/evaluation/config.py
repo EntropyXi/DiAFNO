@@ -16,6 +16,7 @@ class OSTIAValidationConfig:
     s_churn: Optional[float] = None
     ensemble_members: int = 1
     prediction_mode: str = "model"
+    probe_sigma: Optional[float] = None
     condition_ablation: str = "none"
     seed: int = 123
     device: str = "cuda:0"
@@ -24,6 +25,11 @@ class OSTIAValidationConfig:
 
     @classmethod
     def from_args(cls, args):
+        prediction_mode = (
+            "probe"
+            if getattr(args, "probe_sigma", None) is not None
+            else args.prediction_mode
+        )
         return cls(
             checkpoint=args.checkpoint,
             h5_path=args.h5_path,
@@ -35,7 +41,8 @@ class OSTIAValidationConfig:
             sampling_steps=args.sampling_steps,
             s_churn=args.s_churn,
             ensemble_members=args.ensemble_members,
-            prediction_mode=args.prediction_mode,
+            prediction_mode=prediction_mode,
+            probe_sigma=args.probe_sigma,
             condition_ablation=args.condition_ablation,
             seed=args.seed,
             device=args.device,
@@ -74,9 +81,10 @@ def build_validation_parser():
     )
     parser.add_argument(
         "--prediction-mode",
-        choices=("model", "persistence"),
+        choices=("model", "persistence", "probe"),
         default="model"
     )
+    parser.add_argument("--probe-sigma", type=float)
     parser.add_argument(
         "--condition-ablation",
         choices=("none", "zero_sst", "reverse_sst"),
