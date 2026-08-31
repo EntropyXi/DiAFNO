@@ -81,13 +81,25 @@ def build_validation_parser():
     )
     parser.add_argument(
         "--prediction-mode",
-        choices=("model", "persistence", "probe"),
+        choices=(
+            "model",
+            "persistence",
+            "linear_trend",
+            "probe"
+        ),
         default="model"
     )
     parser.add_argument("--probe-sigma", type=float)
     parser.add_argument(
         "--condition-ablation",
-        choices=("none", "zero_sst", "reverse_sst"),
+        choices=(
+            "none",
+            "anchor_only",
+            "reverse_history",
+            "shuffle_history",
+            "zero_sst",
+            "reverse_sst"
+        ),
         default="none"
     )
     parser.add_argument("--seed", type=int, default=123)

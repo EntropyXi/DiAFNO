@@ -9,7 +9,7 @@ from tqdm import tqdm
 
 from ..data.ostia import OSTIADailyDataset
 from ..inference.model import InferenceModelLoader
-from .metrics import RunningSSTMetrics
+from .metrics import RunningSSTMetrics, persistence_skill
 
 
 class OSTIAValidator:
@@ -98,6 +98,10 @@ class OSTIAValidator:
             sampling_steps=self.config.sampling_steps
         )
         if self.config.s_churn is not None:
+            if not hasattr(self.model, "S_churn"):
+                raise ValueError(
+                    "--s-churn only applies to diffusion checkpoints"
+                )
             self.model.S_churn = self.config.s_churn
         self.dataset = OSTIADailyDataset(
             h5_path=self.config.h5_path,
@@ -136,7 +140,31 @@ class OSTIAValidator:
             return condition
         condition = condition.clone()
         input_days = self.model_config.input_days
-        if mode == "zero_sst":
+        if mode == "anchor_only":
+            anchor = condition[:, input_days - 1:input_days]
+            condition[:, :input_days] = anchor.repeat(
+                1,
+                input_days,
+                1,
+                1,
+                1
+            )
+        elif mode == "reverse_history":
+            condition[:, :input_days - 1] = torch.flip(
+                condition[:, :input_days - 1],
+                dims=(1,)
+            )
+        elif mode == "shuffle_history":
+            if condition.shape[0] < 2:
+                raise ValueError(
+                    "shuffle_history requires batch_size >= 2"
+                )
+            condition[:, :input_days - 1] = torch.roll(
+                condition[:, :input_days - 1],
+                shifts=1,
+                dims=0
+            )
+        elif mode == "zero_sst":
             condition[:, :input_days] = 0
         elif mode == "reverse_sst":
             condition[:, :input_days] = torch.flip(
@@ -148,17 +176,20 @@ class OSTIAValidator:
     def _predict_probe(self, condition, target, batch_index):
         """Fixed-sigma denoising probe that bypasses the sampler entirely.
 
-        D(noised, sigma, cond) with a tiny sigma approximates the learned
-        conditional mean E[x|cond]; used to discriminate "the denoiser never
-        learned the conditional mean" from "the sampler path is broken".
-        Residual mode re-anchors the probe target and output by the last
-        condition day.
+        This probe includes the true target in its noised input.  At tiny
+        sigma it is therefore a near-identity numerical check, not an
+        estimate of the forecast-time conditional mean.  Residual mode
+        re-anchors the probe target and output by the last condition day.
         """
         probe_sigma = (
             self.config.probe_sigma
             if self.config.probe_sigma is not None
             else 0.002
         )
+        if self.model_config.model_type != "diffusion":
+            raise ValueError(
+                "probe mode only applies to diffusion checkpoints"
+            )
         input_days = self.model_config.input_days
         anchor = condition[:, input_days - 1:input_days]
         probe_target = target
@@ -207,6 +238,52 @@ class OSTIAValidator:
                 1,
                 1
             )
+        if self.config.prediction_mode == "linear_trend":
+            input_days = self.model_config.input_days
+            history = condition[:, :input_days]
+            time = torch.arange(
+                input_days,
+                device=history.device,
+                dtype=history.dtype
+            )
+            centered_time = time - time.mean()
+            slope = (
+                history
+                * centered_time.view(1, -1, 1, 1, 1)
+            ).sum(dim=1, keepdim=True) / (
+                centered_time.square().sum().clamp_min(1.0)
+            )
+            intercept = (
+                history.mean(dim=1, keepdim=True)
+                - slope * time.mean()
+            )
+            future_time = torch.arange(
+                input_days,
+                input_days + self.model_config.output_days,
+                device=history.device,
+                dtype=history.dtype
+            )
+            return (
+                intercept
+                + slope * future_time.view(1, -1, 1, 1, 1)
+            )
+        if self.model_config.model_type == "deterministic":
+            if self.config.ensemble_members != 1:
+                raise ValueError(
+                    "deterministic checkpoints require "
+                    "--ensemble-members 1"
+                )
+            original_condition = condition
+            condition = self._ablate_condition(condition)
+            prediction = self.model.predict(condition)
+            if self.model_config.target_mode == "residual":
+                last_day = original_condition[
+                    :,
+                    self.model_config.input_days - 1:
+                    self.model_config.input_days
+                ]
+                prediction = prediction + last_day
+            return prediction
         original_condition = condition
         condition = self._ablate_condition(condition)
         predictions = []
@@ -275,7 +352,17 @@ class OSTIAValidator:
     def run(self):
         self.setup()
         overall = RunningSSTMetrics()
+        residual_overall = RunningSSTMetrics()
+        persistence_overall = RunningSSTMetrics()
         by_lead = [
+            RunningSSTMetrics()
+            for _ in range(self.model_config.output_days)
+        ]
+        residual_by_lead = [
+            RunningSSTMetrics()
+            for _ in range(self.model_config.output_days)
+        ]
+        persistence_by_lead = [
             RunningSSTMetrics()
             for _ in range(self.model_config.output_days)
         ]
@@ -309,24 +396,87 @@ class OSTIAValidator:
                         condition,
                         batch_index
                     )
+            anchor = condition[
+                :,
+                self.model_config.input_days - 1:
+                self.model_config.input_days
+            ]
+            anchor = anchor.repeat(
+                1,
+                self.model_config.output_days,
+                1,
+                1,
+                1
+            )
+            prediction_residual = (
+                prediction - anchor
+            ) * self.dataset.sst_std
+            target_residual = (
+                target - anchor
+            ) * self.dataset.sst_std
+            persistence = anchor
             prediction = self._without_depth_axis(
                 self._inverse_transform(prediction)
             ).float().cpu().numpy()
             target = self._without_depth_axis(
                 self._inverse_transform(target)
             ).float().cpu().numpy()
+            prediction_residual = self._without_depth_axis(
+                prediction_residual
+            ).float().cpu().numpy()
+            target_residual = self._without_depth_axis(
+                target_residual
+            ).float().cpu().numpy()
+            persistence = self._without_depth_axis(
+                self._inverse_transform(persistence)
+            ).float().cpu().numpy()
             target_mask = self._without_depth_axis(
                 target_mask
             ).float().cpu().numpy()
             overall.update(prediction, target, target_mask)
+            residual_overall.update(
+                prediction_residual,
+                target_residual,
+                target_mask
+            )
+            persistence_overall.update(
+                persistence,
+                target,
+                target_mask
+            )
             for lead_index, metrics in enumerate(by_lead):
                 metrics.update(
                     prediction[:, lead_index],
                     target[:, lead_index],
                     target_mask[:, lead_index]
                 )
+                residual_by_lead[lead_index].update(
+                    prediction_residual[:, lead_index],
+                    target_residual[:, lead_index],
+                    target_mask[:, lead_index]
+                )
+                persistence_by_lead[lead_index].update(
+                    persistence[:, lead_index],
+                    target[:, lead_index],
+                    target_mask[:, lead_index]
+                )
             num_samples += prediction.shape[0]
             progress.set_postfix(samples=num_samples)
+        overall_result = overall.compute()
+        residual_overall_result = residual_overall.compute()
+        persistence_overall_result = persistence_overall.compute()
+        by_lead_result = {
+            str(index + 1): metrics.compute()
+            for index, metrics in enumerate(by_lead)
+        }
+        residual_by_lead_result = {
+            str(index + 1): metrics.compute()
+            for index, metrics in enumerate(residual_by_lead)
+        }
+        persistence_by_lead_result = {
+            str(index + 1): metrics.compute()
+            for index, metrics in enumerate(persistence_by_lead)
+        }
         result = {
             "checkpoint": os.path.abspath(
                 self.config.checkpoint
@@ -336,14 +486,39 @@ class OSTIAValidator:
             "prediction_mode": self.config.prediction_mode,
             "probe_sigma": self.config.probe_sigma,
             "sampling_steps": self.sampling_steps,
-            "s_churn": self.model.S_churn,
+            "s_churn": getattr(self.model, "S_churn", None),
             "ensemble_members": self.config.ensemble_members,
+            "sampler_profile": {
+                "model_type": self.model_config.model_type,
+                "sampling_steps": self.sampling_steps,
+                "sigma_min": self.model_config.sigma_min,
+                "sigma_max": self.model_config.sigma_max,
+                "rho": self.model_config.rho,
+                "s_churn": getattr(self.model, "S_churn", None),
+                "ensemble_members": self.config.ensemble_members,
+            },
             "condition_ablation": self.config.condition_ablation,
             "seed": self.config.seed,
-            "overall": overall.compute(),
-            "by_lead_day": {
-                str(index + 1): metrics.compute()
-                for index, metrics in enumerate(by_lead)
+            "overall": overall_result,
+            "by_lead_day": by_lead_result,
+            "residual_overall": residual_overall_result,
+            "residual_by_lead_day": residual_by_lead_result,
+            "persistence_overall": persistence_overall_result,
+            "persistence_by_lead_day": persistence_by_lead_result,
+            "persistence_skill": {
+                "overall": persistence_skill(
+                    overall_result,
+                    persistence_overall_result
+                ),
+                "by_lead_day": {
+                    str(index + 1): persistence_skill(
+                        by_lead_result[str(index + 1)],
+                        persistence_by_lead_result[str(index + 1)]
+                    )
+                    for index in range(
+                        self.model_config.output_days
+                    )
+                }
             }
         }
         self._save_result(result)

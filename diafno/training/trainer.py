@@ -1,6 +1,7 @@
 import math
 import os
 from contextlib import nullcontext
+from dataclasses import asdict
 
 import torch
 import torch.distributed as dist
@@ -12,9 +13,14 @@ from torch.optim.lr_scheduler import CosineAnnealingLR
 from tqdm import tqdm
 
 from .artifacts import CheckpointManager, TrainingHistory
+from .config import default_training_model
 from .data import OSTIATrainingData
 from .runtime import DistributedRuntime, set_random_seed
 from ..models.config import OSTIAModelConfig
+from deterministic_iafno.checkpoint_semantics import (
+    load_semantic_sidecar,
+    restore_resume_semantics,
+)
 
 
 class OSTIATrainer:
@@ -55,6 +61,7 @@ class OSTIATrainer:
             )
             print("Using GPUs:", self.runtime.world_size)
             print("Device:", self.runtime.device)
+        self._restore_resume_semantics()
         self.data = OSTIATrainingData(
             self.config,
             self.runtime
@@ -87,6 +94,9 @@ class OSTIATrainer:
         optimizer_steps_per_epoch = math.ceil(
             len(self.data.loader)
             / self.config.gradient_accumulation
+        )
+        self.config.optimizer_steps_per_epoch = (
+            optimizer_steps_per_epoch
         )
         self.scheduler = CosineAnnealingLR(
             self.optimizer,
@@ -147,9 +157,12 @@ class OSTIATrainer:
                 "init-from architecture mismatch for fields "
                 f"(source, current): {mismatches}"
             )
-        if float(source_config.sigma_data) != float(
-                current.sigma_data
-        ):
+        if (
+                current.model_type == "diffusion"
+                and float(source_config.sigma_data) != float(
+                    current.sigma_data
+                )
+            ):
             raise ValueError(
                 "init-from sigma_data mismatch: source "
                 f"{source_config.sigma_data} vs current "
@@ -177,16 +190,57 @@ class OSTIATrainer:
             )
         self.runtime.barrier()
 
-    def _resume_training(self):
+    def _resolve_resume_path(self):
         resume_path = self.config.resume_path
         if resume_path is None:
-            return
+            return None
         if resume_path == "latest":
             resume_path = os.path.join(
                 self.config.output_dir,
                 "latest.pth"
             )
-        resume_path = os.path.abspath(resume_path)
+        return os.path.abspath(resume_path)
+
+    def _restore_resume_semantics(self):
+        """Restore immutable model/data/training-noise semantics from
+        the checkpoint semantic sidecar before building the model.
+
+        A bare ``--resume latest`` therefore continues with exactly the
+        checkpoint's semantics instead of silently adopting newer CLI
+        defaults (the epoch23-style drift).  Legacy checkpoints without
+        a sidecar are left to fail-fast validation of the fields they
+        actually store.  Runs identically on every DDP rank.
+        """
+        resume_path = self._resolve_resume_path()
+        if resume_path is None:
+            return
+        sidecar = load_semantic_sidecar(resume_path)
+        if sidecar is None:
+            if self.runtime.is_main_process:
+                print(
+                    "Resume note: no semantic sidecar for",
+                    resume_path,
+                    "(legacy checkpoint); only fields stored in its "
+                    "model config will be validated",
+                )
+            return
+        defaults = dict(asdict(default_training_model()))
+        defaults["split"] = "train"
+        defaults["condition_mode"] = "sst_mask"
+        notices = restore_resume_semantics(
+            sidecar,
+            self.config,
+            defaults,
+            explicit_fields=self.config.explicit_resume_fields,
+        )
+        if self.runtime.is_main_process:
+            for notice in notices:
+                print(f"Resume notice: {notice}")
+
+    def _resume_training(self):
+        resume_path = self._resolve_resume_path()
+        if resume_path is None:
+            return
         checkpoint = self.checkpoints.load(
             resume_path,
             self.model,
@@ -194,7 +248,8 @@ class OSTIATrainer:
             self.scheduler,
             self.scaler,
             self.runtime.device,
-            self.runtime.rank
+            self.runtime.rank,
+            self.runtime.world_size
         )
         self.start_epoch = int(checkpoint["epoch"])
         self.global_step = int(checkpoint["global_step"])

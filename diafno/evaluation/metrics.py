@@ -60,6 +60,7 @@ class RunningSSTMetrics:
         if self.count == 0:
             return {
                 "mae": None,
+                "mse": None,
                 "rmse": None,
                 "bias": None,
                 "correlation": None,
@@ -70,6 +71,7 @@ class RunningSSTMetrics:
                 "prediction_max": None,
                 "target_mean": None,
                 "target_std": None,
+                "std_ratio": None,
                 "target_min": None,
                 "target_max": None,
                 "valid_pixels": 0
@@ -103,6 +105,7 @@ class RunningSSTMetrics:
         )
         return {
             "mae": self.sum_abs_error / self.count,
+            "mse": self.sum_squared_error / self.count,
             "rmse": math.sqrt(
                 self.sum_squared_error / self.count
             ),
@@ -117,7 +120,24 @@ class RunningSSTMetrics:
             "prediction_max": self.prediction_max,
             "target_mean": self.sum_target / self.count,
             "target_std": target_std,
+            "std_ratio": (
+                prediction_std / target_std
+                if target_std > 0.0
+                else None
+            ),
             "target_min": self.target_min,
             "target_max": self.target_max,
             "valid_pixels": self.count
         }
+
+
+def persistence_skill(model_metrics, persistence_metrics):
+    model_mse = model_metrics.get("mse")
+    persistence_mse = persistence_metrics.get("mse")
+    if (
+            model_mse is None
+            or persistence_mse is None
+            or persistence_mse <= 0.0
+        ):
+        return None
+    return 1.0 - model_mse / persistence_mse

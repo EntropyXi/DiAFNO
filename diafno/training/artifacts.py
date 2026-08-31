@@ -1,4 +1,5 @@
 from .normalization import NormalizationState
+import json
 import os
 import random
 
@@ -9,6 +10,13 @@ import numpy as np
 import torch
 
 from torch.nn.parallel import DistributedDataParallel as DDP
+
+from deterministic_iafno.checkpoint_semantics import (
+    CHECKPOINT_SCHEMA_VERSION,
+    build_semantic_manifest,
+    get_compatible_mismatches,
+    validate_semantic_manifest,
+)
 
 
 class TrainingHistory:
@@ -182,6 +190,7 @@ class CheckpointManager:
             scaler,
             device,
             rank,
+            world_size,
         ):
         if not os.path.isfile(path):
             raise FileNotFoundError(path)
@@ -190,6 +199,27 @@ class CheckpointManager:
             map_location=device,
             weights_only=False
         )
+        compatible_mismatches = get_compatible_mismatches(
+            checkpoint,
+            self.config,
+            world_size=world_size,
+        )
+        desired_scheduler = {
+            "T_max": scheduler.T_max,
+            "eta_min": scheduler.eta_min,
+            "base_lrs": list(scheduler.base_lrs),
+        }
+        semantic_warnings = validate_semantic_manifest(
+            checkpoint,
+            self.config,
+            world_size=world_size,
+            allow_compatible_override=(
+                self.config.allow_resume_override
+            ),
+        )
+        if rank == 0:
+            for warning in semantic_warnings:
+                print(f"Resume warning: {warning}")
         checkpoint_config = checkpoint.get("config", {})
         daily_time_fields = (
             "input_days",
@@ -248,6 +278,16 @@ class CheckpointManager:
         scheduler.load_state_dict(
             checkpoint["scheduler"]
         )
+        if (
+                compatible_mismatches
+                and self.config.allow_resume_override
+            ):
+            self._apply_compatible_overrides(
+                optimizer,
+                scheduler,
+                compatible_mismatches,
+                desired_scheduler,
+            )
         scaler.load_state_dict(checkpoint["scaler"])
         random_states = checkpoint.get("random_states")
         if random_states and rank < len(random_states):
@@ -266,6 +306,61 @@ class CheckpointManager:
             )
         return checkpoint
 
+    def _apply_compatible_overrides(
+            self,
+            optimizer,
+            scheduler,
+            mismatches,
+            desired_scheduler,
+        ):
+        """Apply explicitly accepted CLI optimizer/schedule semantics.
+
+        Optimizer and scheduler states are loaded first so moments and
+        progress are preserved.  Only reviewed hyperparameters are then
+        replaced, keeping the future checkpoint manifest aligned with
+        the actual resumed objects.
+        """
+        if "learning_rate" in mismatches:
+            for group in optimizer.param_groups:
+                group["lr"] = self.config.learning_rate
+                group["initial_lr"] = self.config.learning_rate
+        if "weight_decay" in mismatches:
+            for group in optimizer.param_groups:
+                group["weight_decay"] = self.config.weight_decay
+
+        schedule_fields = {
+            "learning_rate",
+            "min_learning_rate",
+            "num_epochs",
+            "samples_per_epoch",
+            "effective_global_batch",
+            "optimizer_steps_per_epoch",
+        }
+        if schedule_fields.intersection(mismatches):
+            desired_t_max = int(desired_scheduler["T_max"])
+            if desired_t_max <= int(scheduler.last_epoch):
+                raise ValueError(
+                    "reviewed resume schedule has no remaining steps: "
+                    f"T_max={desired_t_max}, "
+                    f"checkpoint last_epoch={scheduler.last_epoch}"
+                )
+            scheduler.T_max = desired_t_max
+            scheduler.eta_min = float(
+                desired_scheduler["eta_min"]
+            )
+            scheduler.base_lrs = list(
+                desired_scheduler["base_lrs"]
+            )
+            if "learning_rate" in mismatches:
+                scheduler.base_lrs = [
+                    self.config.learning_rate
+                    for _ in optimizer.param_groups
+                ]
+            scheduler._last_lr = [
+                group["lr"]
+                for group in optimizer.param_groups
+            ]
+
     def save(
             self,
             path,
@@ -282,6 +377,7 @@ class CheckpointManager:
         normalization = NormalizationState.from_dataset(dataset)
         main_random_state = random_states[0]
         checkpoint = {
+            "schema_version": CHECKPOINT_SCHEMA_VERSION,
             "model": self.unwrap_model(model).state_dict(),
             "optimizer": optimizer.state_dict(),
             "scheduler": scheduler.state_dict(),
@@ -291,6 +387,10 @@ class CheckpointManager:
             "train_loss": train_loss,
             "normalization": normalization,
             "config": self.config.model.to_checkpoint(),
+            "semantic_manifest": build_semantic_manifest(
+                self.config,
+                world_size=len(random_states),
+            ),
             "random_states": random_states,
             "torch_random_state": main_random_state["torch"],
             "cuda_random_state": main_random_state["cuda"],
@@ -298,6 +398,24 @@ class CheckpointManager:
             "python_random_state": main_random_state["python"]
         }
         torch.save(checkpoint, path)
+        semantics_path = path + ".semantics.json"
+        with open(
+                semantics_path,
+                "w",
+                encoding="utf-8"
+            ) as file:
+            json.dump(
+                {
+                    "schema_version": CHECKPOINT_SCHEMA_VERSION,
+                    "config": self.config.model.to_checkpoint(),
+                    "semantic_manifest": checkpoint[
+                        "semantic_manifest"
+                    ],
+                },
+                file,
+                ensure_ascii=False,
+                indent=2,
+            )
         NormalizationState.save(
             normalization,
             os.path.dirname(path)
