@@ -73,7 +73,8 @@ vs persistence (paired on the same indices).
 
 ```
 $PY -m deterministic_iafno.compute_lead_stats --h5-path $H5 \
-  --num-samples 4096 --output /tmp/lead_stats_train.json
+  --num-samples 4096 --batch-size 32 \
+  --output /tmp/lead_stats_train.json
 ```
 
 Verify the JSON declares `split=train`, `target_space=normalized_residual`,

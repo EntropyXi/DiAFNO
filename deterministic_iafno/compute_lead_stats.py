@@ -58,6 +58,58 @@ def build_indices(dataset_size, num_samples):
     ))
 
 
+def build_chunk_aware_indices(dataset, num_samples):
+    """Select train samples in contiguous spatial blocks.
+
+    The OSTIA HDF5 datasets are chunked along the flattened row axis.
+    Sampling isolated ``sequence * samples_per_day + spatial`` rows
+    causes a whole chunk to be read for nearly every single sample.
+    Instead, distribute initialization dates across the train split and
+    read one chunk-sized contiguous spatial block at each date.  The
+    spatial start rotates between dates so all patch positions remain
+    represented.
+    """
+    dataset_size = len(dataset)
+    if num_samples is None or num_samples >= dataset_size:
+        return np.arange(dataset_size, dtype=np.int64)
+    if num_samples < 1:
+        raise ValueError("num_samples must be positive")
+    spatial_block_size = min(
+        int(getattr(dataset, "chunk_rows", 1)),
+        int(dataset.samples_per_day),
+        int(num_samples),
+    )
+    spatial_block_size = max(spatial_block_size, 1)
+    block_count = int(np.ceil(num_samples / spatial_block_size))
+    sequence_indices = np.linspace(
+        0,
+        dataset.sequences_per_window - 1,
+        block_count,
+        dtype=np.int64,
+    )
+    selected = []
+    for block_index, sequence_index in enumerate(sequence_indices):
+        remaining = num_samples - len(selected)
+        if remaining <= 0:
+            break
+        current_size = min(spatial_block_size, remaining)
+        spatial_start = (
+            block_index * spatial_block_size
+            % dataset.samples_per_day
+        )
+        spatial_indices = (
+            spatial_start
+            + np.arange(current_size, dtype=np.int64)
+        ) % dataset.samples_per_day
+        selected.extend(
+            (
+                int(sequence_index) * dataset.samples_per_day
+                + spatial_indices
+            ).tolist()
+        )
+    return np.asarray(selected, dtype=np.int64)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description=(
@@ -70,7 +122,7 @@ def main():
     parser.add_argument("--input-days", type=int, default=7)
     parser.add_argument("--output-days", type=int, default=15)
     parser.add_argument("--num-samples", type=int, default=4096)
-    parser.add_argument("--batch-size", type=int, default=8)
+    parser.add_argument("--batch-size", type=int, default=32)
     args = parser.parse_args()
 
     dataset = OSTIADailyDataset(
@@ -80,7 +132,7 @@ def main():
         output_days=args.output_days,
         condition_mode="sst_mask",
     )
-    indices = build_indices(len(dataset), args.num_samples)
+    indices = build_chunk_aware_indices(dataset, args.num_samples)
     accumulator = LeadStatsAccumulator(args.output_days)
 
     for start in range(0, len(indices), args.batch_size):
@@ -108,7 +160,14 @@ def main():
             "schema_version": 1,
             "target_space": "normalized_residual",
             "split": "train",
-            "selection": "evenly_spaced_dataset_indices",
+            "selection": (
+                "evenly_spaced_sequence_spatial_chunk_blocks"
+            ),
+            "spatial_block_size": min(
+                int(dataset.chunk_rows),
+                int(dataset.samples_per_day),
+                int(len(indices)),
+            ),
             "num_samples": int(len(indices)),
             "dataset_size": int(len(dataset)),
             "input_days": args.input_days,

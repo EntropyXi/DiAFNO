@@ -4,6 +4,7 @@ import numpy as np
 
 from deterministic_iafno.compute_lead_stats import (
     LeadStatsAccumulator,
+    build_chunk_aware_indices,
     build_indices,
 )
 
@@ -29,6 +30,32 @@ class LeadStatsTests(unittest.TestCase):
         self.assertEqual(indices[0], 0)
         self.assertEqual(indices[-1], 99)
         self.assertEqual(len(indices), 5)
+
+    def test_chunk_aware_indices_group_contiguous_spatial_rows(self):
+        class DatasetStub:
+            samples_per_day = 100
+            sequences_per_window = 1000
+            chunk_rows = 32
+
+            def __len__(self):
+                return (
+                    self.samples_per_day
+                    * self.sequences_per_window
+                )
+
+        dataset = DatasetStub()
+        indices = build_chunk_aware_indices(dataset, 4096)
+        self.assertEqual(len(indices), 4096)
+        first_sequence = indices[:32] // dataset.samples_per_day
+        self.assertTrue(np.all(first_sequence == first_sequence[0]))
+        self.assertTrue(np.array_equal(
+            indices[:32] % dataset.samples_per_day,
+            np.arange(32),
+        ))
+        self.assertGreater(
+            len(np.unique(indices // dataset.samples_per_day)),
+            100,
+        )
 
 
 if __name__ == "__main__":
