@@ -72,7 +72,7 @@ vs persistence (paired on the same indices).
 ## Step 2 — Lead stats (train-only)
 
 ```
-$PY deterministic_iafno/compute_lead_stats.py --h5-path $H5 \
+$PY -m deterministic_iafno.compute_lead_stats --h5-path $H5 \
   --num-samples 4096 --output /tmp/lead_stats_train.json
 ```
 
