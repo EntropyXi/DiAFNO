@@ -17,6 +17,9 @@ from .config import default_training_model
 from .data import OSTIATrainingData
 from .runtime import DistributedRuntime, set_random_seed
 from ..models.config import OSTIAModelConfig
+from deterministic_iafno.centered_stats import (
+    validate_centered_fresh_inputs,
+)
 from deterministic_iafno.checkpoint_semantics import (
     load_semantic_sidecar,
     restore_resume_semantics,
@@ -35,6 +38,9 @@ class OSTIATrainer:
         self.amp_enabled = False
         self.start_epoch = 0
         self.global_step = 0
+        self.skipped_optimizer_steps = 0
+        self.skipped_optimizer_step_numbers = []
+        self._mean_grad_asserted = False
         self.history = TrainingHistory(
             config.output_dir,
             config.max_grad_norm
@@ -62,6 +68,7 @@ class OSTIATrainer:
             print("Using GPUs:", self.runtime.world_size)
             print("Device:", self.runtime.device)
         self._restore_resume_semantics()
+        self._validate_centered_fresh_inputs()
         self.data = OSTIATrainingData(
             self.config,
             self.runtime
@@ -73,11 +80,17 @@ class OSTIATrainer:
         ):
             self._init_from_checkpoint()
         self._resume_training()
+        self._reassert_frozen_mean()
 
     def _build_training_components(self):
         self.model = self.config.model.build_model(
             self.runtime.device
         )
+        if (
+                self.config.model.model_type == "centered_diffusion"
+                and self.config.resume_path is None
+        ):
+            self._load_frozen_mean_weights()
         if self.runtime.distributed:
             self.model = DDP(
                 self.model,
@@ -86,8 +99,20 @@ class OSTIATrainer:
                 broadcast_buffers=False,
                 find_unused_parameters=False
             )
+        # The optimizer only ever sees trainable parameters: for
+        # centered_diffusion the frozen mean was already excluded by
+        # requires_grad_(False).
+        trainable_parameters = [
+            parameter
+            for parameter in self.model.parameters()
+            if parameter.requires_grad
+        ]
+        if not trainable_parameters:
+            raise ValueError(
+                "model has no trainable parameters"
+            )
         self.optimizer = optim.AdamW(
-            self.model.parameters(),
+            trainable_parameters,
             lr=self.config.learning_rate,
             weight_decay=self.config.weight_decay
         )
@@ -237,6 +262,113 @@ class OSTIATrainer:
             for notice in notices:
                 print(f"Resume notice: {notice}")
 
+    def _validate_centered_fresh_inputs(self):
+        """Per-rank fail-closed validation of a fresh centered run.
+
+        Every rank independently verifies the frozen mean checkpoint
+        file SHA, the stats JSON provenance, the mean sidecar contract
+        and the mean-vs-centered architecture agreement before any
+        training data is read.  Resume runs restore the same identity
+        from their own checkpoint sidecar instead.
+        """
+        if self.config.model.model_type != "centered_diffusion":
+            return
+        if self.config.resume_path is not None:
+            if self.runtime.is_main_process:
+                print(
+                    "centered resume: mean identity and innovation "
+                    "stats restored from checkpoint sidecar "
+                    f"(mean_checkpoint_sha256="
+                    f"{self.config.model.mean_checkpoint_sha256})"
+                )
+            return
+        validated, immutable = validate_centered_fresh_inputs(
+            self.config.mean_checkpoint_path,
+            self.config.centered_stats_path,
+            self.config.model,
+        )
+        if self.runtime.is_main_process:
+            print("centered_diffusion fresh-run validation passed")
+            print(
+                "target algebra: "
+                "z = ((target - anchor - mu) - m) / s  [fp32]; "
+                "sample: r_hat = mu + m + s*z_hat; "
+                "absolute SST = anchor + r_hat (evaluator only)"
+            )
+            print(
+                "frozen mean SHA-256:",
+                validated["mean_checkpoint_sha256"],
+            )
+            print(
+                "frozen mean semantics SHA-256:",
+                validated["mean_semantics_sha256"],
+            )
+            print(
+                "centered stats:",
+                os.path.abspath(self.config.centered_stats_path),
+            )
+            print(
+                "innovation lead_std[0..2]:",
+                validated["lead_std"][:3],
+            )
+
+    def _load_frozen_mean_weights(self):
+        """Load the frozen deterministic mean weights into the wrapper.
+
+        Runs on every rank before DDP wrapping; the per-rank SHA
+        validation already happened in _validate_centered_fresh_inputs.
+        """
+        mean_path = os.path.abspath(self.config.mean_checkpoint_path)
+        checkpoint = torch.load(
+            mean_path,
+            map_location="cpu",
+            weights_only=False
+        )
+        model = self.checkpoints.unwrap_model(self.model)
+        model.mean_model.load_state_dict(
+            checkpoint["model"],
+            strict=True,
+        )
+        if self.runtime.is_main_process:
+            print("Loaded frozen mean weights from", mean_path)
+
+    def _reassert_frozen_mean(self):
+        """Belt-and-braces freeze after any state-dict load."""
+        if self.config.model.model_type != "centered_diffusion":
+            return
+        model = self.checkpoints.unwrap_model(self.model)
+        model.mean_model.requires_grad_(False)
+        model.mean_model.eval()
+
+    def _detect_grad_overflow(self):
+        """Return True when any optimizer-managed gradient is non-finite.
+
+        Called after ``scaler.unscale_``, this is equivalent to the
+        scaler's internal inf check but observable on every backend.
+        """
+        for group in self.optimizer.param_groups:
+            for parameter in group["params"]:
+                if parameter.grad is None:
+                    continue
+                if not torch.isfinite(parameter.grad).all():
+                    return True
+        return False
+
+    def _assert_mean_frozen_grads(self):
+        model = self.checkpoints.unwrap_model(self.model)
+        mean = getattr(model, "mean_model", None)
+        if mean is None:
+            return
+        gradients = [
+            parameter.grad
+            for parameter in mean.parameters()
+        ]
+        if any(gradient is not None for gradient in gradients):
+            raise AssertionError(
+                "frozen mean produced gradients after an "
+                "optimizer step"
+            )
+
     def _resume_training(self):
         resume_path = self._resolve_resume_path()
         if resume_path is None:
@@ -253,6 +385,16 @@ class OSTIATrainer:
         )
         self.start_epoch = int(checkpoint["epoch"])
         self.global_step = int(checkpoint["global_step"])
+        self.skipped_optimizer_steps = int(
+            checkpoint.get("skipped_optimizer_steps", 0)
+        )
+        self.skipped_optimizer_step_numbers = [
+            int(step)
+            for step in checkpoint.get(
+                "skipped_optimizer_step_numbers",
+                [],
+            )
+        ]
         if self.runtime.is_main_process:
             self.history.load()
             print("Resumed checkpoint:", resume_path)
@@ -261,6 +403,10 @@ class OSTIATrainer:
                 self.start_epoch + 1,
                 "global step:",
                 self.global_step
+            )
+            print(
+                "skipped_optimizer_steps so far:",
+                self.skipped_optimizer_steps
             )
 
     @staticmethod
@@ -404,21 +550,7 @@ class OSTIATrainer:
                     scaled_loss = loss / group_size
                 self.scaler.scale(scaled_loss).backward()
             if should_update:
-                self.scaler.unscale_(self.optimizer)
-                grad_norm = torch.nn.utils.clip_grad_norm_(
-                    self.model.parameters(),
-                    max_norm=self.config.max_grad_norm
-                )
-                self.scaler.step(self.optimizer)
-                self.scaler.update()
-                self.optimizer.zero_grad(set_to_none=True)
-                self.scheduler.step()
-                self.global_step += 1
-                if self.runtime.is_main_process:
-                    self.history.record_gradient(
-                        self.global_step,
-                        grad_norm.detach().item()
-                    )
+                self._optimizer_update()
             loss_value = loss.detach().item()
             epoch_loss += loss_value
             epoch_batches += 1
@@ -440,6 +572,51 @@ class OSTIATrainer:
                     step=self.global_step
                 )
         return epoch_loss, epoch_batches
+
+    def _optimizer_update(self):
+        """One synchronized optimizer update with AMP overflow guard.
+
+        On overflow the optimizer and the scheduler are NOT advanced,
+        the scaler still backs off its scale, and the skip is recorded
+        with its global step.  ``global_step`` advances with the data
+        either way (it indexes update attempts, not optimizer steps).
+        """
+        self.scaler.unscale_(self.optimizer)
+        overflow = self._detect_grad_overflow()
+        if overflow:
+            self.scaler.update()
+            self.optimizer.zero_grad(set_to_none=True)
+            self.global_step += 1
+            self.skipped_optimizer_steps += 1
+            self.skipped_optimizer_step_numbers.append(
+                self.global_step
+            )
+            if self.runtime.is_main_process:
+                self.history.record_skipped_step(self.global_step)
+                print(
+                    "AMP overflow skip at global_step="
+                    f"{self.global_step}; optimizer/scheduler "
+                    "not advanced "
+                    f"(total skips={self.skipped_optimizer_steps})"
+                )
+            return
+        grad_norm = torch.nn.utils.clip_grad_norm_(
+            self.model.parameters(),
+            max_norm=self.config.max_grad_norm
+        )
+        self.scaler.step(self.optimizer)
+        self.scaler.update()
+        self.optimizer.zero_grad(set_to_none=True)
+        self.scheduler.step()
+        self.global_step += 1
+        if not self._mean_grad_asserted:
+            self._assert_mean_frozen_grads()
+            self._mean_grad_asserted = True
+        if self.runtime.is_main_process:
+            self.history.record_gradient(
+                self.global_step,
+                grad_norm.detach().item()
+            )
 
     def _mean_train_loss(
             self,
@@ -485,11 +662,23 @@ class OSTIATrainer:
                     )
                     / 1024 ** 3
                 )
+            skip_rate = (
+                self.skipped_optimizer_steps
+                / max(self.global_step, 1)
+            )
             print(
                 f"epoch={epoch + 1} "
                 f"train_loss={mean_train_loss:.6f} "
-                f"peak_memory={peak_memory:.2f}GB"
+                f"peak_memory={peak_memory:.2f}GB "
+                f"skipped_optimizer_steps="
+                f"{self.skipped_optimizer_steps} "
+                f"(rate={skip_rate:.4%})"
             )
+            if skip_rate > 0.01:
+                print(
+                    "WARNING: optimizer skip rate above 1%: "
+                    f"{skip_rate:.4%}; human review required"
+                )
             self.checkpoints.save(
                 os.path.join(
                     self.config.output_dir,
@@ -503,7 +692,13 @@ class OSTIATrainer:
                 self.global_step,
                 mean_train_loss,
                 self.data.dataset,
-                random_states
+                random_states,
+                skipped_optimizer_steps=(
+                    self.skipped_optimizer_steps
+                ),
+                skipped_optimizer_step_numbers=(
+                    self.skipped_optimizer_step_numbers
+                ),
             )
             if (
                     (epoch + 1)
@@ -522,7 +717,13 @@ class OSTIATrainer:
                     self.global_step,
                     mean_train_loss,
                     self.data.dataset,
-                    random_states
+                    random_states,
+                    skipped_optimizer_steps=(
+                        self.skipped_optimizer_steps
+                    ),
+                    skipped_optimizer_step_numbers=(
+                        self.skipped_optimizer_step_numbers
+                    ),
                 )
             self.history.save()
         self.runtime.barrier()

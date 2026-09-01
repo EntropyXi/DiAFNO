@@ -27,6 +27,7 @@ class TrainingHistory:
         self.loss_values = []
         self.gradient_steps = []
         self.gradient_norms = []
+        self.skipped_optimizer_steps = []
 
     def record_loss(self, step, value):
         self.loss_steps.append(step)
@@ -35,6 +36,9 @@ class TrainingHistory:
     def record_gradient(self, step, value):
         self.gradient_steps.append(step)
         self.gradient_norms.append(value)
+
+    def record_skipped_step(self, step):
+        self.skipped_optimizer_steps.append(step)
 
     def load(self):
         path = os.path.join(
@@ -56,6 +60,10 @@ class TrainingHistory:
             self.gradient_norms = history[
                 "gradient_norms"
             ].astype(np.float32).tolist()
+            if "skipped_optimizer_steps" in history:
+                self.skipped_optimizer_steps = history[
+                    "skipped_optimizer_steps"
+                ].astype(np.int64).tolist()
 
     def save(self):
         os.makedirs(self.output_dir, exist_ok=True)
@@ -79,6 +87,10 @@ class TrainingHistory:
             gradient_norms=np.asarray(
                 self.gradient_norms,
                 dtype=np.float32
+            ),
+            skipped_optimizer_steps=np.asarray(
+                self.skipped_optimizer_steps,
+                dtype=np.int64
             )
         )
         self._save_loss_curve()
@@ -373,6 +385,8 @@ class CheckpointManager:
             train_loss,
             dataset,
             random_states,
+            skipped_optimizer_steps=0,
+            skipped_optimizer_step_numbers=None,
         ):
         normalization = NormalizationState.from_dataset(dataset)
         main_random_state = random_states[0]
@@ -385,6 +399,15 @@ class CheckpointManager:
             "epoch": epoch,
             "global_step": global_step,
             "train_loss": train_loss,
+            "skipped_optimizer_steps": int(
+                skipped_optimizer_steps
+            ),
+            "skipped_optimizer_step_numbers": [
+                int(step)
+                for step in (
+                    skipped_optimizer_step_numbers or []
+                )
+            ],
             "normalization": normalization,
             "config": self.config.model.to_checkpoint(),
             "semantic_manifest": build_semantic_manifest(

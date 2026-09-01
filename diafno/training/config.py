@@ -6,6 +6,9 @@ from dataclasses import dataclass, field
 from typing import Optional, Tuple
 
 from ..models.config import OSTIAModelConfig
+from deterministic_iafno.centered_stats import (
+    validate_centered_stats_payload,
+)
 
 
 def default_training_model():
@@ -22,6 +25,81 @@ def default_training_model():
     )
 
 
+_CONFIG_JSON_FIELDS = (
+    "train_h5_path",
+    "output_dir",
+    "mean_checkpoint_path",
+    "centered_stats_path",
+    "num_epochs",
+    "samples_per_epoch",
+    "batch_per_gpu",
+    "gradient_accumulation",
+    "learning_rate",
+    "min_learning_rate",
+    "weight_decay",
+    "max_grad_norm",
+    "num_workers",
+    "prefetch_factor",
+    "checkpoint_interval",
+    "sampling_steps",
+    "target_mode",
+    "model_type",
+    "target_scaling",
+    "sigma_data",
+    "sigma_max",
+    "sigma_min",
+    "p_mean",
+    "p_std",
+    "rho",
+    "seed",
+    "split",
+    "condition_mode",
+    "use_amp",
+)
+
+
+def merge_config_json(args, config_path):
+    """Fill CLI args from an authoritative training config JSON.
+
+    A JSON value only fills an argument the CLI did not explicitly set;
+    explicit CLI arguments win and are reported so the launcher can
+    verify the JSON-vs-CLI expansion.  Returns a list of human-readable
+    override notes.
+    """
+    config_path = os.path.abspath(config_path)
+    if not os.path.isfile(config_path):
+        raise FileNotFoundError(
+            f"training config JSON not found: {config_path}"
+        )
+    with open(config_path, "r", encoding="utf-8") as file:
+        payload = json.load(file)
+    if not isinstance(payload, dict):
+        raise ValueError(
+            "training config JSON must contain an object"
+        )
+    unknown = sorted(
+        key
+        for key in payload
+        if key not in _CONFIG_JSON_FIELDS
+    )
+    if unknown:
+        raise ValueError(
+            "training config JSON contains unknown keys: "
+            f"{unknown}"
+        )
+    overrides = []
+    for key, value in payload.items():
+        current = getattr(args, key, None)
+        if current is not None:
+            overrides.append(
+                f"{key}: CLI value {current!r} overrides config "
+                f"file value {value!r}"
+            )
+            continue
+        setattr(args, key, value)
+    return overrides
+
+
 @dataclass
 class OSTIATrainingConfig:
     seed: int = 123
@@ -30,6 +108,8 @@ class OSTIATrainingConfig:
     resume_path: Optional[str] = None
     init_from: Optional[str] = None
     lead_stats_path: Optional[str] = None
+    mean_checkpoint_path: Optional[str] = None
+    centered_stats_path: Optional[str] = None
     model: OSTIAModelConfig = field(
         default_factory=default_training_model
     )
@@ -61,6 +141,13 @@ def build_parser():
     parser = argparse.ArgumentParser(
         description="Train DiAFNO for OSTIA SST forecasting"
     )
+    parser.add_argument(
+        "--config",
+        help=(
+            "authoritative training config JSON (values fill any "
+            "CLI argument not explicitly given)"
+        )
+    )
     parser.add_argument("--train-h5-path")
     parser.add_argument("--output-dir")
     parser.add_argument(
@@ -73,6 +160,22 @@ def build_parser():
     parser.add_argument(
         "--lead-stats",
         dest="lead_stats_path"
+    )
+    parser.add_argument(
+        "--mean-checkpoint",
+        dest="mean_checkpoint_path",
+        help=(
+            "frozen deterministic mean checkpoint "
+            "(centered_diffusion fresh runs only)"
+        )
+    )
+    parser.add_argument(
+        "--centered-stats",
+        dest="centered_stats_path",
+        help=(
+            "train-only centered innovation stats JSON "
+            "(centered_diffusion fresh runs only)"
+        )
     )
     parser.add_argument("--num-epochs", type=int)
     parser.add_argument("--samples-per-epoch", type=int)
@@ -101,7 +204,7 @@ def build_parser():
     )
     parser.add_argument(
         "--model-type",
-        choices=("diffusion", "deterministic")
+        choices=("diffusion", "deterministic", "centered_diffusion")
     )
     parser.add_argument(
         "--target-scaling",
@@ -140,6 +243,8 @@ def training_config_from_args(args):
         "resume_path",
         "init_from",
         "lead_stats_path",
+        "mean_checkpoint_path",
+        "centered_stats_path",
         "num_epochs",
         "samples_per_epoch",
         "batch_per_gpu",
@@ -191,6 +296,19 @@ def training_config_from_args(args):
     if args.rho is not None:
         config.model.rho = args.rho
         explicit_resume_fields.append("rho")
+    # Centered path rejections happen before any legacy stats file is
+    # opened: a centered run must never silently consume raw residual
+    # stats or reuse another checkpoint's weights.
+    if config.model.model_type == "centered_diffusion":
+        if config.init_from is not None:
+            raise ValueError(
+                "--init-from is not supported for centered_diffusion"
+            )
+        if config.lead_stats_path is not None:
+            raise ValueError(
+                "--lead-stats carries raw residual statistics and is "
+                "not valid for centered_diffusion; use --centered-stats"
+            )
     if config.lead_stats_path is not None:
         stats_path = os.path.abspath(config.lead_stats_path)
         with open(stats_path, "r", encoding="utf-8") as file:
@@ -216,11 +334,14 @@ def training_config_from_args(args):
             config.model.target_scaling == "lead_standardized"
             and config.lead_stats_path is None
             and config.resume_path is None
+            and config.model.model_type != "centered_diffusion"
         ):
         raise ValueError(
             "--target-scaling lead_standardized requires "
             "--lead-stats"
         )
+    if config.model.model_type == "centered_diffusion":
+        _apply_centered_config_rules(config, explicit_resume_fields)
     for field_name in ("split", "condition_mode"):
         if getattr(args, field_name, None) is not None:
             explicit_resume_fields.append(field_name)
@@ -228,6 +349,71 @@ def training_config_from_args(args):
         sorted(set(explicit_resume_fields))
     )
     return config
+
+
+def _apply_centered_config_rules(config, explicit_resume_fields):
+    """Fail-closed CLI rules for centered_diffusion runs.
+
+    Fresh runs must carry the frozen mean checkpoint and the train-only
+    centered stats JSON; resume restores the same identity from the
+    checkpoint sidecar instead (no mean path required).  A non-unit
+    sigma_data is rejected outright (the init-from / lead-stats
+    rejections already ran before any file IO in the caller).
+    """
+    sigma_data_explicit = "sigma_data" in set(
+        explicit_resume_fields
+    )
+    if (
+            config.resume_path is None
+            or sigma_data_explicit
+        ) and float(config.model.sigma_data) != 1.0:
+        raise ValueError(
+            "centered_diffusion requires sigma_data=1.0 "
+            f"(got {config.model.sigma_data}); the factory default "
+            "0.15 is a launch error for centered runs"
+        )
+    if config.centered_stats_path is None:
+        if config.resume_path is None:
+            raise ValueError(
+                "fresh centered run requires --centered-stats"
+            )
+    else:
+        stats_path = os.path.abspath(config.centered_stats_path)
+        with open(stats_path, "r", encoding="utf-8") as file:
+            stats = json.load(file)
+        validated = validate_centered_stats_payload(
+            stats,
+            target_chans=config.model.target_chans,
+            input_days=config.model.input_days,
+            output_days=config.model.output_days,
+        )
+        config.model.lead_mean = validated["lead_mean"]
+        config.model.lead_std = validated["lead_std"]
+        config.model.mean_lead_mean = validated["mean_lead_mean"]
+        config.model.mean_lead_std = validated["mean_lead_std"]
+        config.model.mean_checkpoint_sha256 = validated[
+            "mean_checkpoint_sha256"
+        ]
+        config.model.mean_semantics_sha256 = validated[
+            "mean_semantics_sha256"
+        ]
+        explicit_resume_fields.extend(
+            (
+                "lead_mean",
+                "lead_std",
+                "mean_lead_mean",
+                "mean_lead_std",
+                "mean_checkpoint_sha256",
+                "mean_semantics_sha256",
+            )
+        )
+    if (
+            config.resume_path is None
+            and config.mean_checkpoint_path is None
+        ):
+        raise ValueError(
+            "fresh centered run requires --mean-checkpoint"
+        )
 
 
 def validate_lead_stats_dict(
@@ -287,10 +473,15 @@ def validate_lead_stats_dict(
             "all lead_std values must be finite and positive"
         )
     target_space = stats.get("target_space")
-    if target_space not in ("normalized_residual", "residual"):
+    if target_space not in (
+            "normalized_residual",
+            "residual",
+            "normalized_centered_residual",
+        ):
         raise ValueError(
             "lead stats must declare target_space="
-            "'normalized_residual' (got "
+            "'normalized_residual' or "
+            "'normalized_centered_residual' (got "
             f"{target_space!r})"
         )
     split = stats.get("split")

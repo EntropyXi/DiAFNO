@@ -2,7 +2,7 @@ import json
 import os
 
 
-CHECKPOINT_SCHEMA_VERSION = 3
+CHECKPOINT_SCHEMA_VERSION = 4
 
 MODEL_IMMUTABLE_FIELDS = (
     "input_days",
@@ -24,6 +24,12 @@ MODEL_IMMUTABLE_FIELDS = (
     "target_scaling",
     "lead_mean",
     "lead_std",
+    # Phase 2 centered identity: frozen-mean residual lead stats and
+    # the two provenance hashes.  None for legacy models.
+    "mean_lead_mean",
+    "mean_lead_std",
+    "mean_checkpoint_sha256",
+    "mean_semantics_sha256",
 )
 
 SAMPLER_FIELDS = (
@@ -342,6 +348,13 @@ def restore_resume_semantics(
     )
     manifest = sidecar.get("semantic_manifest", sidecar)
 
+    tuple_fields = (
+        "lead_mean",
+        "lead_std",
+        "mean_lead_mean",
+        "mean_lead_std",
+    )
+
     def _locate(container, field):
         """Return the object that owns ``field``: the training config
         or its nested model config."""
@@ -372,6 +385,11 @@ def restore_resume_semantics(
                 explicit_fields is not None
                 or _plain(current_value) == _plain(default_value)
             ):
+            if (
+                    field in tuple_fields
+                    and isinstance(checkpoint_value, list)
+                ):
+                checkpoint_value = tuple(checkpoint_value)
             setattr(owner, field, checkpoint_value)
             notices.append(
                 f"restored immutable semantics from checkpoint: "
