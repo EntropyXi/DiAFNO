@@ -22,6 +22,10 @@ class OSTIAValidationConfig:
     device: str = "cuda:0"
     max_samples: Optional[int] = 200
     use_amp: bool = True
+    paired_bootstrap_replicates: int = 0
+    bootstrap_block_days: int = 22
+    bootstrap_confidence: float = 0.95
+    bootstrap_seed: int = 123
 
     @classmethod
     def from_args(cls, args):
@@ -51,7 +55,13 @@ class OSTIAValidationConfig:
                 if args.all_samples
                 else args.max_samples
             ),
-            use_amp=not args.no_amp
+            use_amp=not args.no_amp,
+            paired_bootstrap_replicates=(
+                args.paired_bootstrap_replicates
+            ),
+            bootstrap_block_days=args.bootstrap_block_days,
+            bootstrap_confidence=args.bootstrap_confidence,
+            bootstrap_seed=args.bootstrap_seed,
         )
 
 
@@ -111,4 +121,25 @@ def build_validation_parser():
     )
     parser.add_argument("--all-samples", action="store_true")
     parser.add_argument("--no-amp", action="store_true")
+    parser.add_argument(
+        "--paired-bootstrap-replicates",
+        type=int,
+        default=0,
+        help=(
+            "paired temporal-block bootstrap replicates; "
+            "0 disables confidence intervals"
+        )
+    )
+    parser.add_argument(
+        "--bootstrap-block-days",
+        type=int,
+        default=22,
+        help="days per temporal block (default: 7 input + 15 forecast)"
+    )
+    parser.add_argument(
+        "--bootstrap-confidence",
+        type=float,
+        default=0.95
+    )
+    parser.add_argument("--bootstrap-seed", type=int, default=123)
     return parser

@@ -9,6 +9,7 @@ from tqdm import tqdm
 
 from ..data.ostia import OSTIADailyDataset
 from ..inference.model import InferenceModelLoader
+from .bootstrap import paired_temporal_block_bootstrap
 from .metrics import RunningSSTMetrics, persistence_skill
 
 
@@ -75,6 +76,16 @@ class OSTIAValidator:
             )
         if self.config.batch_size < 1:
             raise ValueError("batch_size must be positive")
+        if self.config.paired_bootstrap_replicates < 0:
+            raise ValueError(
+                "paired_bootstrap_replicates must be non-negative"
+            )
+        if self.config.bootstrap_block_days < 1:
+            raise ValueError("bootstrap_block_days must be positive")
+        if not 0.0 < self.config.bootstrap_confidence < 1.0:
+            raise ValueError(
+                "bootstrap_confidence must be between 0 and 1"
+            )
         if (
                 self.config.s_churn is not None
                 and self.config.s_churn < 0
@@ -367,6 +378,10 @@ class OSTIAValidator:
             for _ in range(self.model_config.output_days)
         ]
         num_samples = 0
+        paired_model_sse = []
+        paired_persistence_sse = []
+        paired_valid_counts = []
+        paired_initialization_times = []
         progress = tqdm(
             self.loader,
             desc="OSTIA validation"
@@ -433,6 +448,37 @@ class OSTIAValidator:
             target_mask = self._without_depth_axis(
                 target_mask
             ).float().cpu().numpy()
+            if self.config.paired_bootstrap_replicates > 0:
+                valid = (
+                    np.isfinite(prediction)
+                    & np.isfinite(target)
+                    & np.isfinite(persistence)
+                    & (target_mask > 0)
+                )
+                paired_model_sse.append(
+                    np.where(
+                        valid,
+                        np.square(prediction - target),
+                        0.0
+                    ).sum(axis=(2, 3), dtype=np.float64)
+                )
+                paired_persistence_sse.append(
+                    np.where(
+                        valid,
+                        np.square(persistence - target),
+                        0.0
+                    ).sum(axis=(2, 3), dtype=np.float64)
+                )
+                paired_valid_counts.append(
+                    valid.sum(axis=(2, 3), dtype=np.int64)
+                )
+                paired_initialization_times.append(
+                    batch["metadata"]["input_start_time"]
+                    .detach()
+                    .cpu()
+                    .numpy()
+                    .astype(np.int64, copy=False)
+                )
             overall.update(prediction, target, target_mask)
             residual_overall.update(
                 prediction_residual,
@@ -521,6 +567,30 @@ class OSTIAValidator:
                 }
             }
         }
+        if self.config.paired_bootstrap_replicates > 0:
+            result["paired_block_bootstrap"] = (
+                paired_temporal_block_bootstrap(
+                    np.concatenate(paired_model_sse, axis=0),
+                    np.concatenate(paired_persistence_sse, axis=0),
+                    np.concatenate(paired_valid_counts, axis=0),
+                    np.concatenate(
+                        paired_initialization_times,
+                        axis=0
+                    ),
+                    block_days=self.config.bootstrap_block_days,
+                    replicates=(
+                        self.config.paired_bootstrap_replicates
+                    ),
+                    confidence_level=(
+                        self.config.bootstrap_confidence
+                    ),
+                    seed=self.config.bootstrap_seed,
+                    block_origin_time=(
+                        self.dataset.first_time
+                        + self.dataset.split_start_day
+                    ),
+                )
+            )
         self._save_result(result)
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return result
