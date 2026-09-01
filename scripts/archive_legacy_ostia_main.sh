@@ -92,6 +92,7 @@ reject_symlink_components() {
         current="${current%/}/$component"
         [[ -L "$current" ]] && fail "symlink component in protected path: $current"
     done
+    return 0
 }
 
 [[ "$EXECUTE" -eq 1 ]] \
