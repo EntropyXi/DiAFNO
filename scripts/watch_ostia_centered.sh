@@ -25,6 +25,7 @@ OUTPUT_DIR=""
 H5_PATH=""
 POLL_SECONDS=60
 ONCE=0
+RECONCILE_ONLY=0
 ABLATION_EPOCH=5
 GPU_ID="0"
 BATCH_SIZE=8
@@ -34,8 +35,11 @@ usage() {
 Usage: watch_ostia_centered.sh --output-dir <dir> --h5-path <h5>
                               [--gpu-id N] [--batch-size 8]
                               [--poll-seconds 60] [--once]
+                              [--reconcile-only]
 
 Fixed val-200 protocol only; the test split is never read.
+--reconcile-only rebuilds the best checkpoint pointer from existing locked
+validation results without running a new validation.
 EOF
 }
 
@@ -63,6 +67,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --once)
             ONCE=1
+            shift
+            ;;
+        --reconcile-only)
+            RECONCILE_ONLY=1
             shift
             ;;
         --help|-h)
@@ -154,6 +162,160 @@ print("  watcher_config.json locked=true with sampling_steps/ensemble_members")
 PYEOF
 }
 
+reconcile_best() {
+    "$PYTHON_BIN" - "$OUT_ABS" "$RESULTS_DIR" "$WATCHER_CONFIG" <<'PYEOF'
+import glob
+import json
+import math
+import os
+import re
+import shutil
+import sys
+import tempfile
+from datetime import datetime, timezone
+
+output_dir, results_dir, config_path = sys.argv[1:]
+with open(config_path, encoding="utf-8") as handle:
+    config = json.load(handle)
+
+if not config.get("locked", False):
+    print("best reconciliation skipped: watcher profile is not locked")
+    raise SystemExit(0)
+
+expected = {
+    "sampling_steps": int(config["sampling_steps"]),
+    "ensemble_members": int(config["ensemble_members"]),
+    "s_churn": float(config.get("s_churn", 0.0)),
+}
+candidates = []
+for result_path in glob.glob(os.path.join(results_dir, "val_epoch*.json")):
+    match = re.search(r"val_epoch(\d+)\.json$", result_path)
+    if match is None:
+        continue
+    try:
+        with open(result_path, encoding="utf-8") as handle:
+            result = json.load(handle)
+        profile = result.get("sampler_profile", {})
+        actual = {
+            "sampling_steps": int(result.get(
+                "sampling_steps", profile.get("sampling_steps")
+            )),
+            "ensemble_members": int(result.get(
+                "ensemble_members", profile.get("ensemble_members")
+            )),
+            "s_churn": float(result.get(
+                "s_churn", profile.get("s_churn", 0.0)
+            )),
+        }
+        if actual != expected:
+            continue
+        if result.get("split") != "val":
+            continue
+        if int(result.get("num_samples", -1)) != 200:
+            continue
+        if int(result.get("seed", -1)) != 123:
+            continue
+        rmse = float(result["overall"]["rmse"])
+        day1_rmse = float(
+            result.get("by_lead_day", {}).get("1", {}).get(
+                "rmse", math.inf
+            )
+        )
+        if not math.isfinite(rmse):
+            continue
+    except (KeyError, TypeError, ValueError, OSError, json.JSONDecodeError):
+        continue
+
+    epoch = int(match.group(1))
+    checkpoint = os.path.join(output_dir, f"epoch_{epoch:03d}.pth")
+    if os.path.isfile(checkpoint):
+        candidates.append((rmse, day1_rmse, epoch, result_path, checkpoint))
+
+if not candidates:
+    print("best reconciliation: no compatible validation result found")
+    raise SystemExit(0)
+
+rmse, day1_rmse, epoch, result_path, checkpoint = min(candidates)
+best_path = os.path.join(output_dir, "best_val_mean_rmse.pth")
+metadata_path = os.path.join(output_dir, "best_val_mean_rmse.json")
+semantics_source = checkpoint + ".semantics.json"
+semantics_target = best_path + ".semantics.json"
+
+current = {}
+try:
+    with open(metadata_path, encoding="utf-8") as handle:
+        current = json.load(handle)
+except (OSError, json.JSONDecodeError):
+    pass
+
+already_current = (
+    os.path.isfile(best_path)
+    and current.get("epoch") == epoch
+    and math.isclose(float(current.get("rmse", math.inf)), rmse)
+)
+if already_current:
+    print(
+        f"best reconciliation: unchanged epoch={epoch} rmse={rmse:.6f}"
+    )
+    raise SystemExit(0)
+
+def atomic_copy(source, destination):
+    descriptor, temporary = tempfile.mkstemp(
+        prefix=os.path.basename(destination) + ".", suffix=".tmp",
+        dir=output_dir,
+    )
+    os.close(descriptor)
+    try:
+        shutil.copy2(source, temporary)
+        os.replace(temporary, destination)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+atomic_copy(checkpoint, best_path)
+if os.path.isfile(semantics_source):
+    atomic_copy(semantics_source, semantics_target)
+
+with open(result_path, encoding="utf-8") as handle:
+    selected_result = json.load(handle)
+metadata = {
+    "epoch": epoch,
+    "rmse": rmse,
+    "day1_rmse": None if not math.isfinite(day1_rmse) else day1_rmse,
+    "skill_vs_persistence": selected_result.get(
+        "persistence_skill", {}
+    ).get("overall"),
+    "protocol": {
+        **expected,
+        "val_samples": 200,
+        "seed": 123,
+        "locked": True,
+    },
+    "source": os.path.relpath(result_path, output_dir),
+    "updated": datetime.now(timezone.utc).isoformat(),
+}
+descriptor, temporary = tempfile.mkstemp(
+    prefix=os.path.basename(metadata_path) + ".", suffix=".tmp",
+    dir=output_dir, text=True,
+)
+try:
+    with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+        json.dump(metadata, handle, indent=2)
+        handle.write("\n")
+    os.replace(temporary, metadata_path)
+finally:
+    if os.path.exists(temporary):
+        os.unlink(temporary)
+
+print(f"best reconciliation: updated epoch={epoch} rmse={rmse:.6f}")
+PYEOF
+}
+
+# Repair a stale/missing best pointer immediately after a watcher restart.
+# Only validation files matching the locked protocol participate.
+reconcile_best
+[[ "$RECONCILE_ONLY" -eq 1 ]] && exit 0
+
 while true; do
     LATEST_EPOCH=0
     LATEST_CKPT=""
@@ -208,6 +370,7 @@ c["last_processed_epoch"] = epoch
 with open(path, "w", encoding="utf-8") as f:
     json.dump(c, f, indent=2)
 PYEOF
+        reconcile_best
     fi
 
     [[ "$ONCE" -eq 1 ]] && break
