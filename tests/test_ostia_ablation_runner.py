@@ -427,7 +427,7 @@ class AblationConfigIdentityTests(OSTIATestCase):
 
 
 class RunnerDataManifestTests(OSTIATestCase):
-    """A1..A5 require the upstream data manifest; A0 stays free."""
+    """A0..A5 require one shared upstream data manifest."""
 
     def _manifest(self):
         h5_path = make_synthetic_h5(
@@ -445,26 +445,23 @@ class RunnerDataManifestTests(OSTIATestCase):
         )
         return manifest_path
 
-    def test_geo_config_requires_data_manifest(self):
-        identity = ABLATION_CONFIGS["A1"]
-        with self.assertRaisesRegex(
-                RuntimeError, "geo-season configuration"
-            ):
-            runner.resolve_data_manifest("A1", identity, None)
+    def test_every_config_requires_data_manifest(self):
         path = self._manifest()
-        resolved = runner.resolve_data_manifest("A1", identity, path)
-        self.assertIsNotNone(resolved)
-        self.assertEqual(resolved["path"], os.path.abspath(path))
-        self.assertEqual(len(resolved["sha256"]), 64)
-
-    def test_legacy_a0_rejects_data_manifest(self):
-        identity = ABLATION_CONFIGS["A0"]
-        path = self._manifest()
-        with self.assertRaisesRegex(RuntimeError, "only applies"):
-            runner.resolve_data_manifest("A0", identity, path)
-        self.assertIsNone(
-            runner.resolve_data_manifest("A0", identity, None)
-        )
+        for config_id in ("A0", "A1", "A5"):
+            identity = ABLATION_CONFIGS[config_id]
+            with self.assertRaisesRegex(
+                    RuntimeError, "shared upstream data manifest"
+                ):
+                runner.resolve_data_manifest(
+                    config_id, identity, None
+                )
+            resolved = runner.resolve_data_manifest(
+                config_id, identity, path
+            )
+            self.assertEqual(
+                resolved["path"], os.path.abspath(path)
+            )
+            self.assertEqual(len(resolved["sha256"]), 64)
 
     def test_commands_carry_data_manifest(self):
         from types import SimpleNamespace
@@ -602,6 +599,39 @@ class LeadStatsModeIntegrationTests(OSTIATestCase):
         with self.assertRaisesRegex(RuntimeError, "do not match"):
             runner.resolve_lead_stats(
                 config_root, identity, payload, h5_path
+            )
+
+    def test_explicit_stats_identity_is_also_validated(self):
+        h5_path = make_synthetic_h5(
+            self.tmp_path("explicit.h5"), total_days=240,
+            coordinate_layout="per_row",
+        )
+        manifest_path = self.tmp_path("manifest.json")
+        from .ostia_test_h5 import write_synthetic_data_manifest
+        write_synthetic_data_manifest(manifest_path, h5_path)
+        stats_path = self.tmp_path("explicit_stats.json")
+        with open(stats_path, "w", encoding="utf-8") as file:
+            json.dump({
+                "condition_mode": "sst_mask",  # A1 mismatch
+                "h5_path": os.path.abspath(h5_path),
+                "input_days": 7,
+                "output_days": 15,
+                "data_manifest_sha256": runner._manifest_sha256(
+                    manifest_path
+                ),
+            }, file)
+        payload = {
+            "condition_mode": "sst_mask_geo_season",
+            "input_days": 7,
+            "output_days": 15,
+        }
+        with self.assertRaisesRegex(RuntimeError, "do not match"):
+            runner.validate_lead_stats_identity(
+                stats_path,
+                ABLATION_CONFIGS["A1"],
+                payload,
+                h5_path,
+                manifest_path,
             )
 
 

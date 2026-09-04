@@ -259,34 +259,9 @@ def resolve_lead_stats(config_root, identity, payload, h5_path,
     os.makedirs(config_dir, exist_ok=True)
     stats_path = os.path.join(config_dir, "lead_stats.json")
     if os.path.isfile(stats_path):
-        with open(stats_path, "r", encoding="utf-8") as file:
-            stats = json.load(file)
-        expected = {
-            "condition_mode": identity["mode"],
-            "h5_path": os.path.abspath(h5_path),
-            "input_days": payload.get("input_days", 7),
-            "output_days": payload.get("output_days", 15),
-        }
-        if data_manifest is not None:
-            expected["data_manifest_sha256"] = _manifest_sha256(
-                data_manifest
-            )
-        actual = {
-            "condition_mode": stats.get("condition_mode"),
-            "h5_path": stats.get("h5_path"),
-            "input_days": stats.get("input_days"),
-            "output_days": stats.get("output_days"),
-        }
-        if data_manifest is not None:
-            actual["data_manifest_sha256"] = stats.get(
-                "data_manifest_sha256"
-            )
-        if actual != expected:
-            raise RuntimeError(
-                f"existing lead stats {stats_path} do not match the "
-                f"current run ({actual} versus {expected}); move the "
-                "file aside and rerun instead of deleting in place"
-            )
+        validate_lead_stats_identity(
+            stats_path, identity, payload, h5_path, data_manifest
+        )
         print(f"[ablation] reusing lead stats {stats_path}")
         return stats_path
     from deterministic_iafno.compute_lead_stats import (
@@ -309,6 +284,40 @@ def resolve_lead_stats(config_root, identity, payload, h5_path,
     return stats_path
 
 
+def validate_lead_stats_identity(stats_path, identity, payload,
+                                 h5_path, data_manifest=None):
+    """Prove an automatic or explicit stats file belongs to the run."""
+    with open(stats_path, "r", encoding="utf-8") as file:
+        stats = json.load(file)
+    expected = {
+        "condition_mode": identity["mode"],
+        "h5_path": os.path.abspath(h5_path),
+        "input_days": payload.get("input_days", 7),
+        "output_days": payload.get("output_days", 15),
+    }
+    if data_manifest is not None:
+        expected["data_manifest_sha256"] = _manifest_sha256(
+            data_manifest
+        )
+    actual = {
+        "condition_mode": stats.get("condition_mode"),
+        "h5_path": stats.get("h5_path"),
+        "input_days": stats.get("input_days"),
+        "output_days": stats.get("output_days"),
+    }
+    if data_manifest is not None:
+        actual["data_manifest_sha256"] = stats.get(
+            "data_manifest_sha256"
+        )
+    if actual != expected:
+        raise RuntimeError(
+            f"lead stats {stats_path} do not match the current run "
+            f"({actual} versus {expected}); use a compatible artifact "
+            "instead of relabeling statistics"
+        )
+    return stats
+
+
 def _manifest_sha256(path):
     from diafno.data.manifest import (
         canonical_manifest_sha256,
@@ -320,27 +329,18 @@ def _manifest_sha256(path):
 def resolve_data_manifest(config_id, identity, data_manifest_arg):
     """Validate the --data-manifest contract of a configuration.
 
-    Geo-season configs (A1..A5) must run with the read-only upstream
-    manifest produced by the audit tool; the legacy A0 control group
-    stays manifest-free.
+    Every A0..A5 run must use the same read-only upstream manifest so
+    chronological split windows and fixed-seed validation samples are
+    identical.  A1..A5 additionally derive seasonal channels from it.
     """
-    if identity["mode"] == "sst_mask_geo_season":
-        if not data_manifest_arg:
-            raise RuntimeError(
-                f"{config_id} is a geo-season configuration and needs "
-                "the upstream data manifest; generate it with "
-                "scripts/audit_ostia_h5.py --source-netcdf "
-                "<upstream.nc> --manifest-out <manifest.json> and "
-                "pass --data-manifest <manifest.json>"
-            )
-    elif data_manifest_arg:
-        raise RuntimeError(
-            "--data-manifest only applies to geo-season "
-            f"configurations (A0/{config_id} is legacy sst_mask and "
-            "stays manifest-free)"
-        )
     if not data_manifest_arg:
-        return None
+        raise RuntimeError(
+            f"{config_id} requires the shared upstream data manifest "
+            "so all ablations use identical gap-filtered windows; "
+            "generate it with scripts/audit_ostia_h5.py "
+            "--source-netcdf <upstream.nc> --manifest-out "
+            "<manifest.json> and pass --data-manifest <manifest.json>"
+        )
     path = os.path.abspath(data_manifest_arg)
     if not os.path.isfile(path):
         raise FileNotFoundError(path)
@@ -616,6 +616,17 @@ def main():
         lead_stats = os.path.abspath(args.lead_stats)
         if not os.path.isfile(lead_stats):
             raise FileNotFoundError(lead_stats)
+        validate_lead_stats_identity(
+            lead_stats,
+            identity,
+            payload,
+            args.h5_path,
+            data_manifest=(
+                data_manifest["path"]
+                if data_manifest is not None
+                else None
+            ),
+        )
 
     from diafno.data.condition_schema import condition_chans
     cond_chans = condition_chans(

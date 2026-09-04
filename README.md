@@ -52,15 +52,18 @@ Geo-season details (fail closed):
   upstream **data manifest** (`scripts/audit_ostia_h5.py
   --source-netcdf <upstream.nc> --manifest-out <file>`, built from
   the NetCDF that proves the 11261 true day offsets including the two
-  31-day gaps).  Training/validation/inference/resume all take
-  `--data-manifest`; the dataset validates the manifest against the
+  31-day gaps).  All A0--A5 training/validation/inference/resume runs
+  take the same `--data-manifest`; the dataset validates it against the
   HDF5 (day count, samples-per-day, compact time-axis sha256) and
   only exposes 22-day windows whose true day offsets are consecutive,
   so no forecast window ever crosses a gap and the season never
-  drifts by the missing days.  Without a manifest or HDF5 metadata
-  the geo-season mode refuses to run (integer time is never a Unix
-  epoch guess).  Time decoding and the manifest identity are recorded
-  in every checkpoint and re-verified on resume/validation/inference.
+  drifts by the missing days.  Binding A0 to the same manifest is
+  essential: otherwise a fixed validation seed selects a different
+  sample universe and the A0/A1 RMSE comparison is invalid.  Without a
+  manifest or HDF5 metadata the geo-season mode refuses to run (integer
+  time is never a Unix epoch guess).  Time decoding and the manifest
+  identity are recorded in every checkpoint and re-verified on
+  resume/validation/inference.
 - every geo-season dataset records a deterministic coordinate
   fingerprint in `geospatial_summary` (lat/lon min/max plus a SHA-256 of
   the canonical little-endian float64 bytes, spec
@@ -119,8 +122,9 @@ evaluation of both checkpoints:
 
 ```bash
 python scripts/run_ablation_stages.py --config-id A0 --stage 1 \
-  --h5-path /data2/user/zzx/exam_preprocessed_data/ocean_temperature_data_patched.h5
-# Geo-season configs (A1..A5) additionally require the manifest:
+  --h5-path /data2/user/zzx/exam_preprocessed_data/ocean_temperature_data_patched.h5 \
+  --data-manifest experiments/ostia_spatiotemporal_ablation/manifests/ostia_data_manifest.json
+# A1..A5 use the exact same manifest and validation sample universe:
 python scripts/run_ablation_stages.py --config-id A1 --stage 1 \
   --h5-path /data2/user/zzx/exam_preprocessed_data/ocean_temperature_data_patched.h5 \
   --data-manifest experiments/ostia_spatiotemporal_ablation/manifests/ostia_data_manifest.json

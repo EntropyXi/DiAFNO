@@ -240,14 +240,69 @@ class ManifestGapWindowTests(OSTIATestCase):
                 other, model_config
             )
 
-    def test_manifest_only_valid_for_geo_mode(self):
-        with self.assertRaisesRegex(ValueError, "only supported"):
-            OSTIADailyDataset(
-                h5_path=self.h5_path,
-                split="train",
-                condition_mode="sst_mask",
-                data_manifest=self.manifest_path,
+    def test_manifest_aligns_legacy_mode_to_same_windows(self):
+        legacy = OSTIADailyDataset(
+            h5_path=self.h5_path,
+            split="train",
+            condition_mode="sst_mask",
+            data_manifest=self.manifest_path,
+        )
+        self.assertEqual(
+            legacy.valid_start_days, self.dataset.valid_start_days
+        )
+        self.assertEqual(legacy.condition_chans, 8)
+        self.assertEqual(
+            legacy.data_manifest_sha256,
+            self.dataset.data_manifest_sha256,
+        )
+        self.assertEqual(
+            legacy.time_axis_summary, self.dataset.time_axis_summary
+        )
+        index = 79 * legacy.samples_per_day
+        self.assertTrue(np.array_equal(
+            legacy[index]["condition"].numpy(),
+            self.dataset[index]["condition"][:8].numpy(),
+        ))
+        self.assertTrue(np.array_equal(
+            legacy[index]["target"].numpy(),
+            self.dataset[index]["target"].numpy(),
+        ))
+
+    def test_legacy_checkpoint_binds_manifest_identity(self):
+        legacy = OSTIADailyDataset(
+            h5_path=self.h5_path,
+            split="train",
+            condition_mode="sst_mask",
+            data_manifest=self.manifest_path,
+        )
+        model_config = copy_dataset_provenance(
+            type("Cfg", (), {"condition_mode": "sst_mask"})(),
+            legacy,
+        )
+        without_manifest = OSTIADailyDataset(
+            h5_path=self.h5_path,
+            split="train",
+            condition_mode="sst_mask",
+        )
+        with self.assertRaisesRegex(ValueError, "disagree"):
+            verify_checkpoint_data_contract(
+                without_manifest, model_config
             )
+
+        shifted_path = self.tmp_path("legacy_shifted.json")
+        write_synthetic_data_manifest(
+            shifted_path,
+            self.h5_path,
+            offsets=[value + 1 for value in self.offsets],
+        )
+        shifted = OSTIADailyDataset(
+            h5_path=self.h5_path,
+            split="train",
+            condition_mode="sst_mask",
+            data_manifest=shifted_path,
+        )
+        with self.assertRaisesRegex(ValueError, "time_axis_summary"):
+            verify_checkpoint_data_contract(shifted, model_config)
 
     def test_manifest_mode_season_matches_attrs_mode_when_identity(self):
         # On a file with provable HDF5 time metadata and an identity

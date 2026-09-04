@@ -12,8 +12,8 @@ class OSTIAInferenceConfig:
     # None = restore the condition contract from the checkpoint model
     # config (legacy checkpoints resolve to 'sst_mask').
     condition_mode: Optional[str] = None
-    # Upstream data manifest required by geo-season checkpoints whose
-    # HDF5 lacks calendar metadata (matches the checkpoint identity).
+    # Upstream data manifest required by any checkpoint bound to the
+    # shared real-day, gap-filtered sample universe.
     data_manifest: Optional[str] = None
     batch_size: int = 1
     num_workers: int = 2
@@ -86,8 +86,8 @@ def build_parser():
         type=str,
         default=None,
         help=(
-            "upstream data manifest (required when the geo-season "
-            "checkpoint was trained with one)"
+            "upstream data manifest (required when the checkpoint "
+            "was trained with one)"
         )
     )
     parser.add_argument(

@@ -82,19 +82,13 @@ def _h5_text(value):
 
 
 def verify_checkpoint_data_contract(dataset, model_config):
-    """Reject validation/inference when the HDF5 cannot prove the
-    checkpoint's geo-season data contract.
+    """Reject validation/inference under a different data contract.
 
-    Legacy modes never required calendar or lat/lon semantics, so
-    nothing is checked there.  For geo-season checkpoints every
-    decoded fact the dataset can produce must be present in the model
-    config (the checkpoint sidecar) and must equal what the current
-    HDF5 actually proves -- otherwise the seasonal/static channels or
-    the real-day time mapping would silently differ from the ones the
-    model was trained on.
+    Geo-season checkpoints bind calendar, geometry and the real-day
+    mapping.  Legacy-channel checkpoints may also bind a data manifest
+    so every ablation uses the same gap-filtered sample universe; those
+    checkpoints bind the calendar/time fields but not geometry.
     """
-    if model_config.condition_mode != "sst_mask_geo_season":
-        return
     if dataset.condition_mode != model_config.condition_mode:
         raise ValueError(
             "dataset condition_mode="
@@ -103,7 +97,30 @@ def verify_checkpoint_data_contract(dataset, model_config):
             f"{model_config.condition_mode!r}; validation/inference "
             "must use the checkpoint's condition contract"
         )
-    for field in PROVENANCE_FIELDS:
+    if model_config.condition_mode == "sst_mask_geo_season":
+        fields = PROVENANCE_FIELDS
+    else:
+        checkpoint_manifest = getattr(
+            model_config, "data_manifest_sha256", None
+        )
+        dataset_manifest = getattr(
+            dataset, "data_manifest_sha256", None
+        )
+        if checkpoint_manifest is None and dataset_manifest is None:
+            return
+        if checkpoint_manifest is None or dataset_manifest is None:
+            raise ValueError(
+                "checkpoint and validation/inference dataset disagree "
+                "on whether a real-day data manifest is bound; refusing "
+                "to change the gap-filtered sample universe"
+            )
+        fields = (
+            "calendar_encoding",
+            "time_units_reference",
+            "time_axis_summary",
+            "data_manifest_sha256",
+        )
+    for field in fields:
         dataset_value = getattr(dataset, field, None)
         checkpoint_value = getattr(model_config, field, None)
         if dataset_value is None:
@@ -178,9 +195,9 @@ class OSTIADailyDataset(Dataset):
             condition_schema_version_for(condition_mode)
         )
         # Optional real-day data manifest (upstream-proven mapping of
-        # each compact HDF5 day to its true daily offset).  Geo-season
-        # mode requires either provable HDF5 time metadata or such a
-        # manifest; legacy modes never use it.
+        # each compact HDF5 day to its true daily offset).  Every
+        # ablation configuration uses it to share one gap-filtered
+        # sample universe; geo-season additionally consumes its dates.
         self.data_manifest_path = (
             os.path.abspath(data_manifest)
             if data_manifest
@@ -188,12 +205,6 @@ class OSTIADailyDataset(Dataset):
         )
         self._manifest = None
         if self.data_manifest_path is not None:
-            if condition_mode != "sst_mask_geo_season":
-                raise ValueError(
-                    "data_manifest is only supported for "
-                    "condition_mode='sst_mask_geo_season' (legacy "
-                    "modes keep their HDF5-native semantics)"
-                )
             if not os.path.isfile(self.data_manifest_path):
                 raise FileNotFoundError(self.data_manifest_path)
             self._manifest = load_data_manifest(
@@ -223,6 +234,8 @@ class OSTIADailyDataset(Dataset):
         self._inspect_file()
         if self._manifest is not None:
             self._validate_manifest_identity()
+            if self.condition_mode != "sst_mask_geo_season":
+                self._resolve_time_semantics()
         self._resolve_static_geometry()
         self._build_valid_windows()
         self.sst_mean, self.sst_std = (

@@ -143,8 +143,9 @@ class OSTIATrainingConfig:
     )
     split: str = "train"
     condition_mode: str = "sst_mask"
-    # Optional upstream-proven real-day data manifest (geo-season
-    # mode only; required when the HDF5 lacks calendar metadata).
+    # Optional upstream-proven real-day data manifest.  The ablation
+    # runner requires it for A0..A5 so every configuration shares the
+    # same gap-filtered sample universe.
     data_manifest_path: Optional[str] = None
 
 
@@ -235,8 +236,8 @@ def build_parser():
         dest="data_manifest_path",
         help=(
             "read-only upstream data manifest mapping every compact "
-            "HDF5 day to its true daily offset (geo-season mode; "
-            "required when the HDF5 carries no calendar metadata)"
+            "HDF5 day to its true daily offset; ablation runs bind "
+            "all configurations to it for identical gap filtering"
         )
     )
     # Explicit small-architecture switches for the A0..A5 ablation.

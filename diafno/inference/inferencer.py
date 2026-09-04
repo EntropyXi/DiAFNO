@@ -56,10 +56,8 @@ class OSTIAInferencer:
             self.model_config.condition_mode,
             "inference",
         )
-        # Geo-season checkpoints trained from an upstream data
-        # manifest cannot be used for inference without that same
-        # manifest (its identity is part of the checkpoint
-        # provenance).
+        # Any checkpoint bound to an upstream data manifest cannot be
+        # used for inference without that same gap-filtered mapping.
         time_source = (
             self.model_config.time_axis_summary or {}
         ).get("source")
@@ -68,7 +66,7 @@ class OSTIAInferencer:
         )
         if time_source == "data_manifest" and data_manifest is None:
             raise ValueError(
-                "this geo-season checkpoint was trained with an "
+                "this checkpoint was trained with an "
                 "upstream data manifest; inference requires the "
                 "matching --data-manifest file"
             )

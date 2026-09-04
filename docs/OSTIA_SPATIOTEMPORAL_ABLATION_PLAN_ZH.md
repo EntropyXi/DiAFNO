@@ -149,6 +149,11 @@
 
 只有日期语义、经纬度单位和 shape 得到证明后才能进入烟测。
 
+A0--A5 必须绑定同一份日期 manifest。A0 虽然不把日期作为模型输入，
+仍须用 manifest 排除跨缺口窗口；否则固定 seed 会在 A0 与 A1 中映射到
+不同验证样本，RMSE 不具备配对可比性。manifest 身份随 checkpoint 保存并在
+resume、validation、inference 时复核。
+
 ## 8. 架构消融矩阵
 
 采用逐项隔离而不是一次性改变全部参数：
@@ -168,6 +173,7 @@
 
 - seed；
 - 数据 split；
+- 同一份真实日期 manifest 与跨缺口窗口过滤；
 - 样本索引/采样计划；
 - optimizer、scheduler、有效 batch；
 - 验证样本及顺序；
@@ -313,4 +319,3 @@ runner 遇到非空输出目录必须拒绝启动，不自动删除、不覆盖�
 - 不把短烟测 loss 当作泛化结论；
 - 不用 test 集挑选配置；
 - 遇到数据语义无法证明、旧 checkpoint 混用、数值异常或持续 OOM 时停止对应阶段并保留诊断证据。
-

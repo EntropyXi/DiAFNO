@@ -126,9 +126,8 @@ class OSTIAValidator:
             self.model_config.condition_mode,
             "validation",
         )
-        # Geo-season checkpoints trained from an upstream data
-        # manifest cannot be validated without that same manifest
-        # (its identity is part of the checkpoint provenance).
+        # Any checkpoint bound to an upstream data manifest cannot be
+        # validated without the same gap-filtered time mapping.
         time_source = (
             self.model_config.time_axis_summary or {}
         ).get("source")
@@ -137,7 +136,7 @@ class OSTIAValidator:
         )
         if time_source == "data_manifest" and data_manifest is None:
             raise ValueError(
-                "this geo-season checkpoint was trained with an "
+                "this checkpoint was trained with an "
                 "upstream data manifest; validation requires the "
                 "matching --data-manifest file"
             )
