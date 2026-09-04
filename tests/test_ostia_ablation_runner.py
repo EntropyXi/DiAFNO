@@ -42,6 +42,17 @@ class RunnerSafetyTests(OSTIATestCase):
         os.makedirs(path)
         assert_directory_available(path)
 
+    def test_logfile_for_does_not_duplicate_suffix(self):
+        root = self.tmp_path("logs")
+        self.assertEqual(
+            runner.logfile_for(root, "run.log"),
+            os.path.join(root, "run.log"),
+        )
+        self.assertEqual(
+            runner.logfile_for(root, "resume"),
+            os.path.join(root, "resume.log"),
+        )
+
     def test_never_creates_or_deletes(self):
         # The refusal helper is purely a guard: nothing is created and
         # nothing is removed by it.

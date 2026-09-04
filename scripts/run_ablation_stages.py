@@ -477,7 +477,8 @@ def validation_command(checkpoint_path, output_path, h5_path,
 
 
 def logfile_for(stage_root, name):
-    path = os.path.join(stage_root, f"{name}.log")
+    filename = name if name.endswith(".log") else f"{name}.log"
+    path = os.path.join(stage_root, filename)
     os.makedirs(stage_root, exist_ok=True)
     return path
 
