@@ -5,7 +5,11 @@ import torch
 
 from torch.utils.data import DataLoader, Sampler
 
-from ..data.ostia import OSTIADailyDataset
+from ..data.ostia import (
+    PROVENANCE_FIELDS,
+    OSTIADailyDataset,
+    copy_dataset_provenance,
+)
 
 
 def seed_worker(worker_id):
@@ -125,13 +129,71 @@ class OSTIATrainingData:
 
     def setup(self):
         model_config = self.config.model
+        # The training-level condition switch is canonical for fresh
+        # runs; adopt it (channel count/names/version) before the
+        # dataset and the model are built so both sides always share
+        # one construction logic.  Resume runs restore condition_mode
+        # onto the training config first, so this sync is a no-op for
+        # them.
+        model_config.adopt_condition_mode(
+            self.config.condition_mode
+        )
         self.dataset = OSTIADailyDataset(
             h5_path=self.config.train_h5_path,
             split=self.config.split,
             input_days=model_config.input_days,
             output_days=model_config.output_days,
-            condition_mode=self.config.condition_mode
+            condition_mode=model_config.condition_mode,
+            data_manifest=self.config.data_manifest_path
         )
+        if self.dataset.condition_chans != model_config.cond_chans:
+            raise ValueError(
+                "condition channel contract mismatch between the "
+                "dataset and the model config: dataset condition_mode="
+                f"{self.dataset.condition_mode!r} produces "
+                f"{self.dataset.condition_chans} channels but the "
+                f"model declares cond_chans={model_config.cond_chans}; "
+                "the condition schema must agree before training"
+            )
+        # Persist the HDF5-proven date/lat-lon/time-axis facts on the
+        # model config so the checkpoint and sidecar carry exactly
+        # what this file (and its data manifest, when one is used)
+        # proved; legacy modes keep None.  A resume already restored
+        # the checkpoint provenance from its sidecar before the
+        # dataset was built: it must match the current HDF5 exactly
+        # and is never silently overwritten; only a fresh run writes
+        # the provenance.
+        if self.config.resume_path is not None:
+            mismatches = {}
+            for field in PROVENANCE_FIELDS:
+                recorded = getattr(model_config, field, None)
+                current = getattr(self.dataset, field)
+                if recorded is None:
+                    if current is not None:
+                        raise ValueError(
+                            "checkpoint has no recorded provenance "
+                            f"({field}=None) but the current HDF5 "
+                            "requires it; refusing to resume without "
+                            "provable date, geospatial or time-axis "
+                            "semantics"
+                        )
+                    # Legacy manifest with a legacy (non-geo) dataset:
+                    # nothing was recorded and nothing to compare.
+                    continue
+                if recorded != current:
+                    mismatches[field] = {
+                        "checkpoint": recorded,
+                        "current_hdf5": current,
+                    }
+            if mismatches:
+                raise ValueError(
+                    "checkpoint provenance does not match the current "
+                    "HDF5; refusing to resume with different date, "
+                    "geospatial or time-mapping semantics "
+                    f"(checkpoint vs current HDF5): {mismatches}"
+                )
+        else:
+            copy_dataset_provenance(model_config, self.dataset)
         self.sampler = DistributedSpatialBlockSampler(
             dataset=self.dataset,
             samples_per_epoch=self.config.samples_per_epoch,

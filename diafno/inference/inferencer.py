@@ -3,7 +3,11 @@ from torch.amp import autocast
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from ..data.ostia import OSTIADailyDataset
+from ..data.condition_schema import resolve_condition_mode
+from ..data.ostia import (
+    OSTIADailyDataset,
+    verify_checkpoint_data_contract,
+)
 
 from .model import InferenceModelLoader
 from .writer import InferenceSampleWriter
@@ -44,12 +48,41 @@ class OSTIAInferencer:
             device=self.device,
             sampling_steps=self.config.sampling_steps
         )
+        # The condition contract comes from the checkpoint, never from
+        # a stale CLI default; an explicit conflicting override is a
+        # launch error before any data is read.
+        condition_mode = resolve_condition_mode(
+            self.config.condition_mode,
+            self.model_config.condition_mode,
+            "inference",
+        )
+        # Geo-season checkpoints trained from an upstream data
+        # manifest cannot be used for inference without that same
+        # manifest (its identity is part of the checkpoint
+        # provenance).
+        time_source = (
+            self.model_config.time_axis_summary or {}
+        ).get("source")
+        data_manifest = getattr(
+            self.config, "data_manifest", None
+        )
+        if time_source == "data_manifest" and data_manifest is None:
+            raise ValueError(
+                "this geo-season checkpoint was trained with an "
+                "upstream data manifest; inference requires the "
+                "matching --data-manifest file"
+            )
         self.dataset = OSTIADailyDataset(
             h5_path=self.config.h5_path,
             split=self.config.split,
             input_days=self.model_config.input_days,
             output_days=self.model_config.output_days,
-            condition_mode=self.config.condition_mode
+            condition_mode=condition_mode,
+            data_manifest=data_manifest
+        )
+        verify_checkpoint_data_contract(
+            self.dataset,
+            self.model_config,
         )
         loader_options = {
             "dataset": self.dataset,

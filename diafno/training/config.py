@@ -30,6 +30,7 @@ _CONFIG_JSON_FIELDS = (
     "output_dir",
     "mean_checkpoint_path",
     "centered_stats_path",
+    "lead_stats_path",
     "num_epochs",
     "samples_per_epoch",
     "batch_per_gpu",
@@ -54,7 +55,14 @@ _CONFIG_JSON_FIELDS = (
     "seed",
     "split",
     "condition_mode",
+    "data_manifest_path",
     "use_amp",
+    # Explicit small-architecture entries for the controlled
+    # spatiotemporal ablation (A0..A5).  cond_chans is deliberately
+    # NOT configurable: it is derived from condition_mode.
+    "patch_size",
+    "num_blocks",
+    "implicit_layer",
 )
 
 
@@ -135,6 +143,9 @@ class OSTIATrainingConfig:
     )
     split: str = "train"
     condition_mode: str = "sst_mask"
+    # Optional upstream-proven real-day data manifest (geo-season
+    # mode only; required when the HDF5 lacks calendar metadata).
+    data_manifest_path: Optional[str] = None
 
 
 def build_parser():
@@ -219,6 +230,35 @@ def build_parser():
     parser.add_argument("--seed", type=int)
     parser.add_argument("--split")
     parser.add_argument("--condition-mode")
+    parser.add_argument(
+        "--data-manifest",
+        dest="data_manifest_path",
+        help=(
+            "read-only upstream data manifest mapping every compact "
+            "HDF5 day to its true daily offset (geo-season mode; "
+            "required when the HDF5 carries no calendar metadata)"
+        )
+    )
+    # Explicit small-architecture switches for the A0..A5 ablation.
+    # Values given on the CLI win over the config JSON; cond_chans is
+    # deliberately never a CLI flag (it derives from condition_mode).
+    parser.add_argument(
+        "--patch-size",
+        nargs=3,
+        type=int,
+        metavar=("H", "W", "Z"),
+        help="3D patch size [H W Z] for the IAFNO backbone"
+    )
+    parser.add_argument(
+        "--num-blocks",
+        type=int,
+        help="AFNO frequency-block count for the IAFNO backbone"
+    )
+    parser.add_argument(
+        "--implicit-layer",
+        type=int,
+        help="implicit (weight-tied) iteration count for the backbone"
+    )
     amp_group = parser.add_mutually_exclusive_group()
     amp_group.add_argument(
         "--amp",
@@ -260,12 +300,51 @@ def training_config_from_args(args):
         "seed",
         "split",
         "condition_mode",
+        "data_manifest_path",
         "use_amp"
     )
     for field_name in field_names:
         value = getattr(args, field_name, None)
         if value is not None:
             setattr(config, field_name, value)
+    # The condition schema is authoritative: the model-level
+    # condition_mode mirrors the training-level switch and the channel
+    # count/names/version are derived from the canonical tables, never
+    # hand-filled.
+    if config.condition_mode != config.model.condition_mode:
+        config.model.adopt_condition_mode(config.condition_mode)
+    patch_size = getattr(args, "patch_size", None)
+    if patch_size is not None:
+        if not isinstance(patch_size, (list, tuple)) or (
+                len(patch_size) != 3
+            ):
+            raise ValueError(
+                "patch_size must be a 3-element array of positive "
+                f"integers, but got {patch_size!r}"
+            )
+        resolved_patch = tuple(
+            int(value) for value in patch_size
+        )
+        if any(value < 1 for value in resolved_patch):
+            raise ValueError(
+                f"patch_size entries must be positive: {resolved_patch}"
+            )
+        config.model.patch_size = resolved_patch
+        explicit_resume_fields.append("patch_size")
+    num_blocks = getattr(args, "num_blocks", None)
+    if num_blocks is not None:
+        num_blocks = int(num_blocks)
+        if num_blocks < 1:
+            raise ValueError("num_blocks must be positive")
+        config.model.num_blocks = num_blocks
+        explicit_resume_fields.append("num_blocks")
+    implicit_layer = getattr(args, "implicit_layer", None)
+    if implicit_layer is not None:
+        implicit_layer = int(implicit_layer)
+        if implicit_layer < 1:
+            raise ValueError("implicit_layer must be positive")
+        config.model.implicit_layer = implicit_layer
+        explicit_resume_fields.append("implicit_layer")
     if args.sampling_steps is not None:
         config.model.sampling_steps = args.sampling_steps
         explicit_resume_fields.append("sampling_steps")

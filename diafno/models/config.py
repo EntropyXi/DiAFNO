@@ -3,6 +3,11 @@ from typing import Optional, Tuple
 
 import torch
 
+from ..data.condition_schema import (
+    CONDITION_MODES,
+    condition_channel_names,
+    condition_schema_version_for,
+)
 from .diffusion import ElucidatedDiffusion
 from .iafno import IAFNODiff
 from deterministic_iafno.centered_diffusion import (
@@ -47,6 +52,30 @@ class OSTIAModelConfig:
     mean_lead_std: Optional[Tuple[float, ...]] = None
     mean_checkpoint_sha256: Optional[str] = None
     mean_semantics_sha256: Optional[str] = None
+    # Condition-schema contract.  Persisted with every checkpoint and
+    # semantic sidecar so training, resume, validation and inference
+    # all restore the same data contract.  Legacy checkpoints lack the
+    # fields and are interpreted as 'sst_mask'/version 1 with their
+    # stored cond_chans; channel counts and ordering are validated
+    # against the canonical schema tables at build time instead of
+    # trusting hand-written cond_chans values.
+    condition_mode: str = "sst_mask"
+    condition_schema_version: int = 1
+    condition_channel_names: Optional[Tuple[str, ...]] = None
+    # Decoded HDF5 date semantics (geo-season mode only): the resolved
+    # calendar and the proven time reference, e.g.
+    # 'days since 2020-01-01'.  None for legacy modes.
+    calendar_encoding: Optional[str] = None
+    time_units_reference: Optional[str] = None
+    # Provenance of the static lat/lon grids (geo-season mode only).
+    geospatial_summary: Optional[dict] = None
+    # Provenance of the real-day time axis (geo-season mode only):
+    # per-day offsets sha256 / gaps / calendar, plus the identity of
+    # the upstream data manifest when one was used.  Two files with
+    # the same shape but a different time mapping can never pass the
+    # checkpoint contract.
+    time_axis_summary: Optional[dict] = None
+    data_manifest_sha256: Optional[str] = None
 
     def to_checkpoint(self):
         return asdict(self)
@@ -87,9 +116,108 @@ class OSTIAModelConfig:
             values["mean_lead_mean"] = tuple(values["mean_lead_mean"])
         if values.get("mean_lead_std") is not None:
             values["mean_lead_std"] = tuple(values["mean_lead_std"])
+        if values.get("condition_channel_names") is not None:
+            values["condition_channel_names"] = tuple(
+                values["condition_channel_names"]
+            )
         return cls(**values)
 
+    # -- condition-schema helpers ------------------------------------
+
+    def canonical_condition_channel_names(self):
+        """Fixed channel order required by the declared mode."""
+        return condition_channel_names(
+            self.condition_mode,
+            self.input_days,
+        )
+
+    def adopt_condition_mode(self, condition_mode):
+        """Make the whole condition schema canonical for one mode.
+
+        The channel table is authoritative: ``cond_chans`` and the
+        channel-name tuple are derived, never hand-maintained.  Call
+        this from the training config / data setup only; validation
+        and inference restore the same fields from the checkpoint.
+        """
+        if condition_mode not in CONDITION_MODES:
+            raise ValueError(
+                f"condition_mode must be one of {CONDITION_MODES}, "
+                f"but got {condition_mode!r}"
+            )
+        self.condition_mode = condition_mode
+        self.condition_schema_version = (
+            condition_schema_version_for(condition_mode)
+        )
+        self.condition_channel_names = (
+            self.canonical_condition_channel_names()
+        )
+        self.cond_chans = len(self.condition_channel_names)
+        return self
+
+    def validate_condition_schema(self):
+        """Fail-closed channel/schema checks before any model build.
+
+        Runs before any parameter tensors exist, so an 8-versus-14
+        channel mistake or a hand-edited channel list can never reach
+        a state-dict load.  The SST history always occupies channels
+        ``0 .. input_days-1`` (channel ``input_days-1`` is the t0
+        anchor), followed by the t0 mask and then the static channels.
+
+        Schema-managed configs (condition mode adopted by the trainer,
+        geo-season mode, or any stored schema-version/channel-name
+        metadata) are validated strictly.  The exact legacy-unmanaged
+        shape -- default ``sst_mask`` mode, schema version 1 and no
+        stored channel names -- keeps the historical freedom of tiny
+        hand-built configs (regression tests, toy networks) whose
+        cond_chans is an arbitrary tensor-channel count.
+        """
+        if self.condition_mode not in CONDITION_MODES:
+            raise ValueError(
+                f"condition_mode must be one of {CONDITION_MODES}, "
+                f"but got {self.condition_mode!r}"
+            )
+        legacy_unmanaged = (
+            self.condition_mode == "sst_mask"
+            and int(self.condition_schema_version) == 1
+            and self.condition_channel_names is None
+        )
+        if legacy_unmanaged:
+            return
+        canonical = self.canonical_condition_channel_names()
+        if self.condition_channel_names is not None:
+            if tuple(self.condition_channel_names) != canonical:
+                raise ValueError(
+                    "condition_channel_names do not match the fixed "
+                    f"schema for condition_mode={self.condition_mode!r} "
+                    "with input_days="
+                    f"{self.input_days}: stored "
+                    f"{tuple(self.condition_channel_names)} versus "
+                    f"canonical {canonical}; the channel layout is "
+                    "immutable and must not be hand-edited"
+                )
+        if self.cond_chans != len(canonical):
+            raise ValueError(
+                "condition channel count mismatch: the condition "
+                f"schema for condition_mode={self.condition_mode!r} "
+                f"with input_days={self.input_days} requires "
+                f"cond_chans={len(canonical)}, but the model config "
+                f"declares cond_chans={self.cond_chans}.  cond_chans "
+                "must come from the condition schema, not from a "
+                "hand-written value"
+            )
+        expected_version = condition_schema_version_for(
+            self.condition_mode
+        )
+        if self.condition_schema_version != expected_version:
+            raise ValueError(
+                "condition_schema_version mismatch: "
+                f"condition_mode={self.condition_mode!r} requires "
+                f"version {expected_version}, but the config stores "
+                f"{self.condition_schema_version}"
+            )
+
     def build_model(self, device, sampling_steps=None):
+        self.validate_condition_schema()
         if self.target_mode not in ("absolute", "residual"):
             raise ValueError(
                 "target_mode must be 'absolute' or 'residual'"

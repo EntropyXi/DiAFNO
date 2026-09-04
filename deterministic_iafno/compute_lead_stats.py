@@ -110,33 +110,37 @@ def build_chunk_aware_indices(dataset, num_samples):
     return np.asarray(selected, dtype=np.int64)
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        description=(
-            "Compute deterministic train-only per-lead residual "
-            "statistics for OSTIA"
-        )
-    )
-    parser.add_argument("--h5-path", required=True)
-    parser.add_argument("--output", required=True)
-    parser.add_argument("--input-days", type=int, default=7)
-    parser.add_argument("--output-days", type=int, default=15)
-    parser.add_argument("--num-samples", type=int, default=4096)
-    parser.add_argument("--batch-size", type=int, default=32)
-    args = parser.parse_args()
-
-    dataset = OSTIADailyDataset(
-        h5_path=args.h5_path,
-        split="train",
-        input_days=args.input_days,
-        output_days=args.output_days,
+def compute_lead_stats_file(
+        h5_path,
+        output,
+        input_days=7,
+        output_days=15,
+        num_samples=4096,
+        batch_size=32,
         condition_mode="sst_mask",
-    )
-    indices = build_chunk_aware_indices(dataset, args.num_samples)
-    accumulator = LeadStatsAccumulator(args.output_days)
+        data_manifest=None,
+    ):
+    """Compute train-only per-lead residual stats and write them.
 
-    for start in range(0, len(indices), args.batch_size):
-        batch_indices = indices[start:start + args.batch_size]
+    Shared by the CLI and the ablation runner so the deterministic
+    lead-statistics protocol is identical everywhere.  The condition
+    mode (and the real-day data manifest identity, when one is used)
+    is recorded for provenance (geo-season runs must recompute their
+    own stats under the same mode/manifest).
+    """
+    dataset = OSTIADailyDataset(
+        h5_path=h5_path,
+        split="train",
+        input_days=input_days,
+        output_days=output_days,
+        condition_mode=condition_mode,
+        data_manifest=data_manifest,
+    )
+    indices = build_chunk_aware_indices(dataset, num_samples)
+    accumulator = LeadStatsAccumulator(output_days)
+
+    for start in range(0, len(indices), batch_size):
+        batch_indices = indices[start:start + batch_size]
         samples = dataset.__getitems__(batch_indices.tolist())
         condition = torch.stack([
             sample["condition"] for sample in samples
@@ -149,7 +153,7 @@ def main():
         ]).numpy()
         anchor = condition[
             :,
-            args.input_days - 1:args.input_days,
+            input_days - 1:input_days,
         ]
         residual = target - anchor
         accumulator.update(residual, target_mask)
@@ -170,19 +174,69 @@ def main():
             ),
             "num_samples": int(len(indices)),
             "dataset_size": int(len(dataset)),
-            "input_days": args.input_days,
-            "output_days": args.output_days,
+            "input_days": input_days,
+            "output_days": output_days,
+            "condition_mode": condition_mode,
+            "data_manifest_sha256": dataset.data_manifest_sha256,
+            "day_offset_sha256": (
+                (dataset.time_axis_summary or {}).get(
+                    "day_offset_sha256"
+                )
+            ),
             "sst_mean": dataset.sst_mean,
             "sst_std": dataset.sst_std,
-            "h5_path": os.path.abspath(args.h5_path),
+            "h5_path": os.path.abspath(h5_path),
         }
     )
-    output_path = os.path.abspath(args.output)
+    output_path = os.path.abspath(output)
     output_dir = os.path.dirname(output_path)
     if output_dir:
         os.makedirs(output_dir, exist_ok=True)
     with open(output_path, "w", encoding="utf-8") as file:
         json.dump(result, file, ensure_ascii=False, indent=2)
+    return result
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description=(
+            "Compute deterministic train-only per-lead residual "
+            "statistics for OSTIA"
+        )
+    )
+    parser.add_argument("--h5-path", required=True)
+    parser.add_argument("--output", required=True)
+    parser.add_argument("--input-days", type=int, default=7)
+    parser.add_argument("--output-days", type=int, default=15)
+    parser.add_argument("--num-samples", type=int, default=4096)
+    parser.add_argument("--batch-size", type=int, default=32)
+    parser.add_argument(
+        "--condition-mode",
+        default="sst_mask",
+        help=(
+            "condition contract the stats were computed under; "
+            "recorded in the payload for provenance"
+        ),
+    )
+    parser.add_argument(
+        "--data-manifest",
+        default=None,
+        help=(
+            "upstream data manifest (geo-season runs whose HDF5 "
+            "lacks calendar metadata)"
+        ),
+    )
+    args = parser.parse_args()
+    result = compute_lead_stats_file(
+        h5_path=args.h5_path,
+        output=args.output,
+        input_days=args.input_days,
+        output_days=args.output_days,
+        num_samples=args.num_samples,
+        batch_size=args.batch_size,
+        condition_mode=args.condition_mode,
+        data_manifest=args.data_manifest,
+    )
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
 

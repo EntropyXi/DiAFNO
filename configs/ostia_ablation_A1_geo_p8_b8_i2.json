@@ -1,0 +1,19 @@
+{
+  "condition_mode": "sst_mask_geo_season",
+  "model_type": "deterministic",
+  "target_mode": "residual",
+  "target_scaling": "lead_standardized",
+  "patch_size": [8, 8, 1],
+  "num_blocks": 8,
+  "implicit_layer": 2,
+  "seed": 123,
+  "split": "train",
+  "learning_rate": 2e-4,
+  "min_learning_rate": 1e-6,
+  "weight_decay": 1e-4,
+  "max_grad_norm": 1.0,
+  "use_amp": true,
+  "num_workers": 2,
+  "prefetch_factor": 1,
+  "train_h5_path": "/data2/user/zzx/exam_preprocessed_data/ocean_temperature_data_patched.h5"
+}

@@ -2,7 +2,7 @@ import json
 import os
 
 
-CHECKPOINT_SCHEMA_VERSION = 4
+CHECKPOINT_SCHEMA_VERSION = 5
 
 MODEL_IMMUTABLE_FIELDS = (
     "input_days",
@@ -30,6 +30,22 @@ MODEL_IMMUTABLE_FIELDS = (
     "mean_lead_std",
     "mean_checkpoint_sha256",
     "mean_semantics_sha256",
+    # Condition-schema contract (version 5): the fixed channel layout,
+    # decoded calendar semantics and the proven geospatial summary of
+    # the training HDF5.  Legacy checkpoints (schema < 5) simply lack
+    # these keys and are compared on the fields they actually store.
+    # condition_mode itself lives on the training config and is
+    # recorded separately in the manifest immutable block below.
+    "condition_schema_version",
+    "condition_channel_names",
+    "calendar_encoding",
+    "time_units_reference",
+    "geospatial_summary",
+    # Real-day time-axis provenance (geo-season mode): per-day offset
+    # digest / gaps plus the data-manifest identity.  Two files with
+    # the same shape but a different time mapping fail closed.
+    "time_axis_summary",
+    "data_manifest_sha256",
 )
 
 SAMPLER_FIELDS = (
@@ -353,6 +369,7 @@ def restore_resume_semantics(
         "lead_std",
         "mean_lead_mean",
         "mean_lead_std",
+        "condition_channel_names",
     )
 
     def _locate(container, field):

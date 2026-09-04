@@ -9,7 +9,12 @@ class OSTIAValidationConfig:
     h5_path: str
     output_path: str = "./validation_metrics.json"
     split: str = "val"
-    condition_mode: str = "sst_mask"
+    # None = restore the condition contract from the checkpoint model
+    # config (legacy checkpoints resolve to 'sst_mask').
+    condition_mode: Optional[str] = None
+    # Upstream data manifest required by geo-season checkpoints whose
+    # HDF5 lacks calendar metadata (matches the checkpoint identity).
+    data_manifest: Optional[str] = None
     batch_size: int = 1
     num_workers: int = 2
     sampling_steps: Optional[int] = None
@@ -40,6 +45,7 @@ class OSTIAValidationConfig:
             output_path=args.output_path,
             split=args.split,
             condition_mode=args.condition_mode,
+            data_manifest=args.data_manifest,
             batch_size=args.batch_size,
             num_workers=args.num_workers,
             sampling_steps=args.sampling_steps,
@@ -78,7 +84,19 @@ def build_validation_parser():
     parser.add_argument("--split", default="val")
     parser.add_argument(
         "--condition-mode",
-        default="sst_mask"
+        default=None,
+        help=(
+            "condition contract override; defaults to the mode "
+            "restored from the checkpoint"
+        )
+    )
+    parser.add_argument(
+        "--data-manifest",
+        default=None,
+        help=(
+            "upstream data manifest (required when the geo-season "
+            "checkpoint was trained with one)"
+        )
     )
     parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument("--num-workers", type=int, default=2)
