@@ -11,6 +11,8 @@ from .writer import InferenceSampleWriter
 
 
 class OSTIAInferencer:
+    # 用途：初始化推理器：保存配置、准备模型加载器与结果写出器。
+    # 参数：输入 config（推理配置对象）；输出 无。
     def __init__(self, config):
         self.config = config
         self.device = None
@@ -23,6 +25,8 @@ class OSTIAInferencer:
         self.writer = None
         self.amp_enabled = False
 
+    # 用途：装配推理组件：数据集、checkpoint 加载与输出目录。
+    # 参数：无输入；输出 无（组件写入实例属性）。
     def setup(self):
         if self.config.ensemble_members < 1:
             raise ValueError(
@@ -77,6 +81,8 @@ class OSTIAInferencer:
         return self
 
     @staticmethod
+    # 用途：把 dataloader 样本 dict 拆分为 (condition, target, target_mask)。
+    # 参数：输入 batch（样本 dict 或列表）；输出 三元组。
     def unpack_batch(batch):
         if isinstance(batch, dict):
             return (
@@ -88,6 +94,8 @@ class OSTIAInferencer:
         metadata = batch[3] if len(batch) > 3 else None
         return batch[0], batch[1], batch[2], metadata
 
+    # 用途：校验条件张量的通道数与形状契约。
+    # 参数：输入 condition（条件张量）；输出 无（不合法抛 ValueError）。
     def check_condition(self, condition):
         expected_shape = (
             self.model_config.cond_chans,
@@ -105,6 +113,8 @@ class OSTIAInferencer:
                 f"but got {tuple(condition.shape)}"
             )
 
+    # 用途：把批数据移动到推理设备。
+    # 参数：输入 condition/target/target_mask；输出 设备上的三元组。
     def _move_batch(
             self,
             condition,
@@ -127,6 +137,8 @@ class OSTIAInferencer:
             )
         return condition, target, target_mask
 
+    # 用途：把模型空间预测反标准化回开尔文并重建绝对 SST。
+    # 参数：输入 value（模型空间值）；输出 物理空间预测。
     def inverse_transform(self, value):
         if value is None:
             return None
@@ -154,6 +166,8 @@ class OSTIAInferencer:
                 return value * std + mean
         return value
 
+    # 用途：按成员数多次采样扩散并返回全部成员（确定性模型为单成员直出）。
+    # 参数：输入 condition（条件场）、batch_index（批号，用于采样种子）；输出 [members,C,H,W,Z] 预测堆叠。
     def _predict_ensemble(
             self,
             condition,
@@ -184,6 +198,8 @@ class OSTIAInferencer:
             members = members + last_day.unsqueeze(0)
         return members.mean(dim=0), members
 
+    # 用途：把一个批次的预测/真值/mask/成员与元数据写出。
+    # 参数：输入 start_index（样本起始号）、prediction/target/target_mask（数组）、members（集成成员）、metadata（元数据列表）；输出 无。
     def _save_batch(
             self,
             start_index,
@@ -233,6 +249,8 @@ class OSTIAInferencer:
         return saved
 
     @torch.no_grad()
+    # 用途：推理主循环：逐批采样、反标准化并落盘全部结果。
+    # 参数：无输入；输出 无。
     def run(self):
         self.setup()
         saved = 0

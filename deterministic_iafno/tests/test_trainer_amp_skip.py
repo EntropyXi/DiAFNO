@@ -16,14 +16,20 @@ from diafno.training.trainer import OSTIATrainer
 
 
 class TinyLinear(nn.Module):
+    # 用途：测试桩的初始化。
+    # 参数：见签名；输出 无。
     def __init__(self):
         super().__init__()
         self.linear = nn.Linear(4, 2)
 
+    # 用途：执行一次前向的测试辅助。
+    # 参数：见签名；输出 模型输出。
     def forward(self, x):
         return self.linear(x)
 
 
+# 用途：构建测试用训练器实例的辅助函数。
+# 参数：见签名；输出 OSTIATrainer 实例。
 def build_trainer(tmp_dir, model=None):
     trainer = OSTIATrainer.__new__(OSTIATrainer)
     config = OSTIATrainingConfig()
@@ -54,14 +60,20 @@ def build_trainer(tmp_dir, model=None):
 
 
 class AmpOverflowSkipTests(unittest.TestCase):
+    # 用途：每个测试前的夹具准备。
+    # 参数：无输入；输出 无。
     def setUp(self):
         tests_dir = os.path.dirname(os.path.abspath(__file__))
         self.tmp_dir = os.path.join(tests_dir, ".tmp_amp_skip")
         os.makedirs(self.tmp_dir, exist_ok=True)
 
+    # 用途：每个测试后的夹具清理。
+    # 参数：无输入；输出 无。
     def tearDown(self):
         shutil.rmtree(self.tmp_dir, ignore_errors=True)
 
+    # 用途：执行一次前向+反向的测试辅助。
+    # 参数：见签名；输出 损失张量。
     def backward_once(self, trainer, seed=3):
         torch.manual_seed(seed)
         loss = trainer.model(
@@ -70,6 +82,8 @@ class AmpOverflowSkipTests(unittest.TestCase):
         trainer.scaler.scale(loss).backward()
         return loss
 
+    # 用途：验证溢出检测器标记非有限梯度。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_overflow_detector_flags_nonfinite_grads(self):
         trainer = build_trainer(self.tmp_dir)
         self.backward_once(trainer)
@@ -78,6 +92,8 @@ class AmpOverflowSkipTests(unittest.TestCase):
             parameter.grad.add_(float("inf"))
         self.assertTrue(trainer._detect_grad_overflow())
 
+    # 用途：验证溢出时跳过优化器与调度器步进。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_overflow_skips_optimizer_and_scheduler(self):
         trainer = build_trainer(self.tmp_dir)
         self.backward_once(trainer)
@@ -108,6 +124,8 @@ class AmpOverflowSkipTests(unittest.TestCase):
         )
         self.assertEqual(trainer.history.gradient_steps, [])
 
+    # 用途：验证无溢出步会推进优化器与调度器。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_clean_step_advances_optimizer_and_scheduler(self):
         trainer = build_trainer(self.tmp_dir)
         self.backward_once(trainer)
@@ -135,6 +153,8 @@ class AmpOverflowSkipTests(unittest.TestCase):
             trainer.history.skipped_optimizer_steps, []
         )
 
+    # 用途：验证 global_step 在跳步时仍计数。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_global_step_tracks_updates_even_when_skipped(self):
         trainer = build_trainer(self.tmp_dir)
         original_detect = trainer._detect_grad_overflow
@@ -153,6 +173,8 @@ class AmpOverflowSkipTests(unittest.TestCase):
         )
         self.assertEqual(trainer.scheduler.last_epoch, 0)
 
+    # 用途：验证首步后断言均值无梯度。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_mean_grad_assertion_after_first_step(self):
         mean = nn.Linear(2, 2)
         mean.requires_grad_(False)
@@ -163,6 +185,8 @@ class AmpOverflowSkipTests(unittest.TestCase):
         with self.assertRaises(AssertionError):
             trainer._assert_mean_frozen_grads()
 
+    # 用途：验证优化器参数排除冻结均值。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_optimizer_excludes_frozen_mean(self):
         from deterministic_iafno.centered_diffusion import (
             FrozenMeanCenteredDiffusion,

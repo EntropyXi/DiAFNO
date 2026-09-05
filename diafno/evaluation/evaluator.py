@@ -9,11 +9,15 @@ from .metrics import RunningSSTMetrics
 
 
 class OSTIAEvaluator:
+    # 用途：初始化离线评估器：登记预测目录与输出路径。
+    # 参数：输入 prediction_dir（已保存预测的目录）、output_path（指标输出 JSON 路径）；输出 无。
     def __init__(self, prediction_dir, output_path):
         self.prediction_dir = prediction_dir
         self.output_path = output_path
 
     @staticmethod
+    # 用途：确保数组带 batch 轴（单样本时补一维，static 方法）。
+    # 参数：输入 value（数组）；输出 至少二维的数组。
     def ensure_batch_axis(value):
         value = np.asarray(value)
         if value.ndim in (4, 5) and value.shape[-1] == 1:
@@ -28,6 +32,8 @@ class OSTIAEvaluator:
             )
         return value
 
+    # 用途：遍历已保存的预测文件，累计逐 lead 指标并写评估 JSON。
+    # 参数：无输入（读实例配置）；输出 无（结果落盘）。
     def run(self):
         paths = sorted(glob.glob(
             os.path.join(self.prediction_dir, "sample_*.npz")

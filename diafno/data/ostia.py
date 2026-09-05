@@ -14,6 +14,8 @@ class OSTIADailyDataset(Dataset):
         "test": (0.9, 1.0)
     }
 
+    # 用途：构造数据集：校验参数、探测 HDF5 结构并加载/估计训练集标准化统计量。
+    # 参数：输入 h5_path（预处理 HDF5 路径）、split（train/val/test 时间划分）、input_days（输入日数 7）、output_days（目标日数 15）、condition_mode（sst 或 sst_mask）；输出 无（写入实例属性）。
     def __init__(
             self,
             h5_path,
@@ -57,6 +59,8 @@ class OSTIADailyDataset(Dataset):
             "source": "training_split_sample"
         }
 
+    # 用途：只读校验 HDF5 数据集形状与时间轴，推断 samples_per_day、总天数和本 split 的日窗口。
+    # 参数：无输入；输出 无（结果写入 self.num_rows/samples_per_day/split_start_day 等属性，异常时 fail-fast）。
     def _inspect_file(self):
         if not os.path.isfile(self.h5_path):
             raise FileNotFoundError(self.h5_path)
@@ -139,6 +143,8 @@ class OSTIADailyDataset(Dataset):
         self._file_sst_std = attrs.get("sst_std")
 
     @staticmethod
+    # 用途：合成有效海洋像素布尔阵（mask 位 2 为 0、数值有限且在 -5~350 内）。
+    # 参数：输入 sst（原始 SST 数组）、mask（原始 mask 数组）；输出 同形状 bool 数组（True=有效海洋）。
     def _valid_ocean(sst, mask):
         return (
             ((mask.astype(np.uint8) & 2) == 0)
@@ -147,6 +153,8 @@ class OSTIADailyDataset(Dataset):
             & (sst < 350.0)
         )
 
+    # 用途：确定标准化统计量：优先读 HDF5 属性，否则在 train 段按 chunk 抽样估计。
+    # 参数：无输入；输出 (sst_mean, sst_std) 二元组。
     def _load_or_estimate_normalization(self):
         if (
             self._file_sst_mean is not None
@@ -217,6 +225,8 @@ class OSTIADailyDataset(Dataset):
         )
         return float(mean), float(np.sqrt(variance))
 
+    # 用途：按进程惰性打开 HDF5 文件句柄（512MB 块缓存，支持 dataloader worker）。
+    # 参数：无输入；输出 h5py.File 句柄。
     def _get_file(self):
         pid = os.getpid()
         if (
@@ -233,12 +243,16 @@ class OSTIADailyDataset(Dataset):
             self._h5_pid = pid
         return self._h5_file
 
+    # 用途：返回本 split 的样本总数 = 序列数 × 每日空间块数。
+    # 参数：无输入；输出 int 样本数。
     def __len__(self):
         return (
             self.sequences_per_window
             * self.samples_per_day
         )
 
+    # 用途：把负索引折算为正索引并做越界检查。
+    # 参数：输入 index（任意整数索引）；输出 规范化后的索引（越界抛 IndexError）。
     def _normalize_index(self, index):
         if index < 0:
             index += len(self)
@@ -247,6 +261,8 @@ class OSTIADailyDataset(Dataset):
         return index
 
     @staticmethod
+    # 用途：把升序索引数组切分为连续段，用于按段批量读 HDF5。
+    # 参数：输入 indices（升序 int 数组）；输出 [(start, end), ...] 半开区间列表。
     def _contiguous_runs(indices):
         if indices.size == 0:
             return []
@@ -265,6 +281,8 @@ class OSTIADailyDataset(Dataset):
             for start, end in zip(starts, ends)
         ]
 
+    # 用途：读取同一时间窗口的多个空间块，构造 22 个连续日的条件/目标/mask 样本（含标准化与均值填充）。
+    # 参数：输入 sequence_index（时间序列号，0 起）、spatial_indices（空间块号列表）；输出 样本 dict 列表（condition/target/target_mask/metadata）。
     def _load_sequence_batch(
             self,
             sequence_index,
@@ -403,6 +421,8 @@ class OSTIADailyDataset(Dataset):
             )
         return samples
 
+    # 用途：批量取样入口：按序列号分组合并读取，减少 HDF5 随机访问。
+    # 参数：输入 indices（样本索引数组/列表）；输出 与索引顺序一致的样本 dict 列表。
     def __getitems__(self, indices):
         indices = np.asarray(
             [
@@ -435,23 +455,33 @@ class OSTIADailyDataset(Dataset):
                 samples[int(position)] = sample
         return samples
 
+    # 用途：单样本入口，内部委托 __getitems__。
+    # 参数：输入 index（样本索引）；输出 样本 dict（condition/target/target_mask/metadata）。
     def __getitem__(self, index):
         return self.__getitems__([index])[0]
 
+    # 用途：把模型空间 SST 反标准化回开尔文。
+    # 参数：输入 value（标准化值）；输出 value*std+mean。
     def inverse_transform_sst(self, value):
         return value * self.sst_std + self.sst_mean
 
+    # 用途：关闭 HDF5 句柄并清空缓存引用。
+    # 参数：无输入；输出 无。
     def close(self):
         if self._h5_file is not None:
             self._h5_file.close()
         self._h5_file = None
         self._h5_pid = None
 
+    # 用途：pickle 前剔除文件句柄，保证 dataloader worker 可序列化。
+    # 参数：无输入；输出 去掉 _h5_file/_h5_pid 的状态字典。
     def __getstate__(self):
         state = self.__dict__.copy()
         state["_h5_file"] = None
         state["_h5_pid"] = None
         return state
 
+    # 用途：对象销毁时确保关闭 HDF5 句柄。
+    # 参数：无输入；输出 无。
     def __del__(self):
         self.close()

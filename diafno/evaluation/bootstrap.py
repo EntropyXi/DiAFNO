@@ -4,6 +4,8 @@ import math
 import numpy as np
 
 
+# 用途：校验 bootstrap 输入的形状、有限性、配对一致性与参数取值。
+# 参数：输入 model_sse/persistence_sse（逐像素成对平方误差）、valid_counts（有效像素数）、initialization_times（起报时间）、block_days（块长）、replicates（重采样次数）、confidence_level（置信水平）；输出 无（不合法抛 ValueError）。
 def _validate_inputs(
         model_sse,
         persistence_sse,
@@ -57,6 +59,8 @@ def _validate_inputs(
     )
 
 
+# 用途：计算成对 MSE 差与 MSE skill 的点估计。
+# 参数：输入 model_sse/persistence_sse、valid_counts；输出 (rmse_difference, mse_skill) 点估计。
 def _point_metrics(model_sse, persistence_sse, valid_counts):
     count = valid_counts.sum(axis=0)
     if np.any(count <= 0):
@@ -89,6 +93,8 @@ def _point_metrics(model_sse, persistence_sse, valid_counts):
     }
 
 
+# 用途：由重采样分布取经验百分位置信区间。
+# 参数：输入 values（重采样统计量数组）、confidence_level（置信水平）；输出 [下界, 上界]。
 def _interval(values, confidence_level):
     alpha = (1.0 - confidence_level) / 2.0
     lower, upper = np.quantile(
@@ -99,6 +105,8 @@ def _interval(values, confidence_level):
     return lower, upper
 
 
+# 用途：按起报时间分组的 22 日配对时间块 bootstrap：重采样块级 RMSE 差与 skill 的分布与置信区间。
+# 参数：输入 model_sse/persistence_sse（成对平方误差）、valid_counts（逐像素有效数）、initialization_times（起报时间，用于分块）；输出 含 overall 与 by-lead 的点估计、CI 及 model_better 比例的 dict。
 def paired_temporal_block_bootstrap(
         model_sse,
         persistence_sse,

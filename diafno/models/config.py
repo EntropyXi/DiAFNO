@@ -49,10 +49,14 @@ class OSTIAModelConfig:
     mean_checkpoint_sha256: Optional[str] = None
     mean_semantics_sha256: Optional[str] = None
 
+    # 用途：把模型配置导出为可写入 checkpoint/sidecar 的字典。
+    # 参数：无输入；输出 含架构与语义字段的 dict。
     def to_checkpoint(self):
         return asdict(self)
 
     @classmethod
+    # 用途：从 checkpoint 内的配置字典恢复模型配置实例。
+    # 参数：输入 config（to_checkpoint 导出的 dict，可含旧字段名）；输出 OSTIAModelConfig 实例（类方法）。
     def from_checkpoint(cls, config):
         config = dict(config)
         if not all(
@@ -90,6 +94,8 @@ class OSTIAModelConfig:
             values["mean_lead_std"] = tuple(values["mean_lead_std"])
         return cls(**values)
 
+    # 用途：按配置构建模型：deterministic / diffusion / centered_diffusion 三种包装之一并移到设备。
+    # 参数：输入 device（目标设备）、sampling_steps（覆盖默认采样步数）；输出 组装好的 nn.Module。
     def build_model(self, device, sampling_steps=None):
         if self.target_mode not in ("absolute", "residual"):
             raise ValueError(
@@ -171,6 +177,8 @@ class OSTIAModelConfig:
             else sampling_steps
         )
 
+        # 用途：内部辅助：按配置实例化 IAFNODiff 主干（含 old-field 兼容映射）。
+        # 参数：无输入（闭包引用外层配置）；输出 IAFNODiff 实例。
         def _build_backbone():
             return IAFNODiff(
                 dim=self.image_size,

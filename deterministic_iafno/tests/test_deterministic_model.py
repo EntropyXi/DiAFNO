@@ -8,6 +8,8 @@ from deterministic_iafno.model import DeterministicIAFNO
 
 
 class RecordingNet(nn.Module):
+    # 用途：测试桩的初始化。
+    # 参数：见签名；输出 无。
     def __init__(self, target_chans):
         super().__init__()
         self.target_chans = target_chans
@@ -15,6 +17,8 @@ class RecordingNet(nn.Module):
         self.last_x = None
         self.last_time = None
 
+    # 用途：执行一次前向的测试辅助。
+    # 参数：见签名；输出 模型输出。
     def forward(self, x, time, condition):
         self.last_x = x.detach().clone()
         self.last_time = time.detach().clone()
@@ -31,6 +35,8 @@ class RecordingNet(nn.Module):
 
 
 class DeterministicModelTests(unittest.TestCase):
+    # 用途：验证 raw 路径使用零目标与固定时间值。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_raw_path_uses_zero_target_and_fixed_time(self):
         net = RecordingNet(2)
         model = DeterministicIAFNO(net, 2)
@@ -40,6 +46,8 @@ class DeterministicModelTests(unittest.TestCase):
         self.assertTrue(torch.count_nonzero(net.last_x) == 0)
         self.assertTrue(torch.count_nonzero(net.last_time) == 0)
 
+    # 用途：验证 lead 标准化预测正确反变换。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_lead_standardized_prediction_is_inverted(self):
         net = RecordingNet(2)
         model = DeterministicIAFNO(
@@ -56,6 +64,8 @@ class DeterministicModelTests(unittest.TestCase):
             torch.tensor([2.5, 5.0]),
         ))
 
+    # 用途：验证 mask MSE 梯度能传回主干。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_masked_mse_backpropagates_to_backbone(self):
         net = RecordingNet(2)
         model = DeterministicIAFNO(net, 2)

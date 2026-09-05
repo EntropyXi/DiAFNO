@@ -35,6 +35,8 @@ import time
 EPOCH_LINE = re.compile(r"epoch=(\d+) train_loss=([\d.eE+-]+)")
 
 
+# 用途：解析微调 watcher 的命令行参数（日志路径、验证协议、输出位置等）。
+# 参数：无输入；输出 解析后的 args。
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repo", required=True)
@@ -52,6 +54,8 @@ def parse_args():
     return parser.parse_args()
 
 
+# 用途：从训练日志解析最新已完成的 epoch 号。
+# 参数：输入 log_path（训练日志路径）；输出 最新 epoch（int，无记录时为 -1）。
 def read_last_epoch(log_path):
     """Return (max_epoch, train_loss_of_last_line) from the training log."""
     epoch = 0
@@ -67,6 +71,8 @@ def read_last_epoch(log_path):
     return epoch, train_loss
 
 
+# 用途：判断训练进程是否仍在运行（据进程列表）。
+# 参数：无输入；输出 布尔值。
 def training_running():
     result = subprocess.run(
         ["pgrep", "-f", "trainer_ostia.py"],
@@ -76,6 +82,8 @@ def training_running():
     return result.returncode == 0
 
 
+# 用途：对快照 checkpoint 执行一次固定协议验证并写出指标 JSON。
+# 参数：输入 args（配置）、snapshot_path（快照 checkpoint）、output_path（输出路径）；输出 无（子进程执行）。
 def run_validation(args, snapshot_path, output_path):
     command = [
         sys.executable,
@@ -97,6 +105,8 @@ def run_validation(args, snapshot_path, output_path):
         return json.load(handle)
 
 
+# 用途：读取已验证 epoch 的记录，避免重复验证。
+# 参数：输入 metrics_path（记录文件路径）；输出 已处理 epoch 集合。
 def load_recorded_epochs(metrics_path):
     epochs = set()
     if not os.path.isfile(metrics_path):
@@ -113,6 +123,8 @@ def load_recorded_epochs(metrics_path):
     return epochs
 
 
+# 用途：watcher 主循环：轮询新完成的 epoch、快照、验证并维护最优 checkpoint。
+# 参数：无输入（读命令行）；输出 无。
 def main():
     args = parse_args()
     args.exp_dir = os.path.abspath(args.exp_dir)

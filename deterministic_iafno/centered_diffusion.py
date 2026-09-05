@@ -30,6 +30,8 @@ class FrozenMeanCenteredDiffusion(nn.Module):
     - intentionally does NOT expose ``preconditioned_network_forward``.
     """
 
+    # 用途：装配冻结均值 + EDM 扩散的 centered 包装器，校验 innovation 统计量并注册为非持久 buffer。
+    # 参数：输入 mean_model（待冻结的确定性均值模型）、diffusion（ElucidatedDiffusion）、lead_mean/lead_std（innovation 逐 lead 统计量，长度须等于扩散通道数且有限）；输出 无（构造模块状态）。
     def __init__(
             self,
             mean_model,
@@ -85,6 +87,8 @@ class FrozenMeanCenteredDiffusion(nn.Module):
             persistent=False,
         )
 
+    # 用途：覆写 train()：无论包装器处于何种模式，强制 mean_model 保持 eval。
+    # 参数：输入 mode（True/False，继承语义）；输出 self。
     def train(self, mode=True):
         super().train(mode)
         # The frozen deterministic mean must never leave eval mode,
@@ -95,47 +99,69 @@ class FrozenMeanCenteredDiffusion(nn.Module):
     # ---- two-way sampler attribute delegation ---------------------
 
     @property
+    # 用途：property：透传读取内部扩散的 S_churn。
+    # 参数：无输入；输出 对应的内部 diffusion 属性值。
     def S_churn(self):
         return self.diffusion.S_churn
 
     @S_churn.setter
+    # 用途：setter：透传写入内部扩散的 S_churn。
+    # 参数：输入 value（新值）；输出 无。
     def S_churn(self, value):
         self.diffusion.S_churn = value
 
     @property
+    # 用途：property：透传读取内部扩散的 sigma_min。
+    # 参数：无输入；输出 对应的内部 diffusion 属性值。
     def sigma_min(self):
         return self.diffusion.sigma_min
 
     @sigma_min.setter
+    # 用途：setter：透传写入内部扩散的 sigma_min。
+    # 参数：输入 value（新值）；输出 无。
     def sigma_min(self, value):
         self.diffusion.sigma_min = value
 
     @property
+    # 用途：property：透传读取内部扩散的 sigma_max。
+    # 参数：无输入；输出 对应的内部 diffusion 属性值。
     def sigma_max(self):
         return self.diffusion.sigma_max
 
     @sigma_max.setter
+    # 用途：setter：透传写入内部扩散的 sigma_max。
+    # 参数：输入 value（新值）；输出 无。
     def sigma_max(self, value):
         self.diffusion.sigma_max = value
 
     @property
+    # 用途：property：透传读取内部扩散的 rho。
+    # 参数：无输入；输出 对应的内部 diffusion 属性值。
     def rho(self):
         return self.diffusion.rho
 
     @rho.setter
+    # 用途：setter：透传写入内部扩散的 rho。
+    # 参数：输入 value（新值）；输出 无。
     def rho(self, value):
         self.diffusion.rho = value
 
     @property
+    # 用途：property：透传读取内部扩散的采样步数。
+    # 参数：无输入；输出 对应的内部 diffusion 属性值。
     def num_sample_steps(self):
         return self.diffusion.num_sample_steps
 
     @num_sample_steps.setter
+    # 用途：setter：透传写入内部扩散的采样步数。
+    # 参数：输入 value（新值）；输出 无。
     def num_sample_steps(self, value):
         self.diffusion.num_sample_steps = value
 
     # ---- innovation standardization helpers -----------------------
 
+    # 用途：innovation 标准化 z=(e-m)/s（强制 fp32）。
+    # 参数：输入 innovation（e = r - μ）；输出 标准化后的 z。
     def transform_innovation(self, innovation):
         """``z = (e - m) / s`` in fp32 (per-lead innovation stats)."""
         return (
@@ -143,6 +169,8 @@ class FrozenMeanCenteredDiffusion(nn.Module):
             / self.innovation_std
         )
 
+    # 用途：innovation 反变换 e=z*s+m（强制 fp32）。
+    # 参数：输入 standardized（标准化 z）；输出 innovation e。
     def inverse_innovation(self, standardized):
         """``e = z * s + m`` in fp32 (per-lead innovation stats)."""
         return (
@@ -152,6 +180,8 @@ class FrozenMeanCenteredDiffusion(nn.Module):
 
     # ---- forward / sampling ---------------------------------------
 
+    # 用途：校验残差目标与条件的维度、批大小与空间形状一致。
+    # 参数：输入 residual_target、condition（张量）；输出 无（不一致抛 ValueError）。
     def _check_shapes(self, residual_target, condition):
         if residual_target.ndim != 5:
             raise ValueError(
@@ -172,6 +202,8 @@ class FrozenMeanCenteredDiffusion(nn.Module):
                 "target and condition spatial shapes do not match"
             )
 
+    # 用途：fp32 no-grad 运行冻结均值模型得到 μ（输出已在 normalized residual 空间，显式禁用 autocast 防精度损失）。
+    # 参数：输入 condition（条件场）；输出 均值预测 μ。
     def _frozen_mean_prediction(self, condition):
         """fp32, no-grad mean prediction in normalized residual space.
 
@@ -186,6 +218,8 @@ class FrozenMeanCenteredDiffusion(nn.Module):
                 condition.float()
             ).float()
 
+    # 用途：训练前向：e=残差目标-μ，标准化为 z 后交给内部 EDM 扩散损失。
+    # 参数：输入 residual_target（r=y-a）、condition（条件场）、target_mask（有效像素 mask，可选）；输出 标量扩散损失。
     def forward(self, residual_target, condition, target_mask=None):
         self._check_shapes(residual_target, condition)
         mu = self._frozen_mean_prediction(condition)
@@ -200,6 +234,8 @@ class FrozenMeanCenteredDiffusion(nn.Module):
         )
 
     @torch.no_grad()
+    # 用途：采样：内部扩散生成 ẑ，反变换后 r̂=μ+m+s·ẑ（不加 anchor、不反标准化 SST，由评估器统一重建一次）。
+    # 参数：输入 condition（条件场）、num_sample_steps（采样步数，覆盖默认）、seed（随机种子）；输出 normalized residual 预测 r̂。
     def sample(self, condition, num_sample_steps=None, seed=None):
         z_hat = self.diffusion.sample(
             condition,

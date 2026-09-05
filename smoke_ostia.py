@@ -4,6 +4,8 @@ import subprocess
 import sys
 
 
+# 用途：查询本机 GPU 的显存占用与利用率状态。
+# 参数：无输入；输出 GPU 状态列表。
 def query_gpu_states():
     output = subprocess.check_output(
         [
@@ -25,6 +27,8 @@ def query_gpu_states():
     return states
 
 
+# 用途：按显存与利用率挑选空闲 GPU。
+# 参数：输入 count（需要的卡数）；输出 空闲 GPU 索引列表。
 def select_idle_gpus(count=2):
     states = query_gpu_states()
     if len(states) < count:
@@ -47,6 +51,8 @@ def select_idle_gpus(count=2):
     return indices
 
 
+# 用途：组装并打印/执行烟测训练命令（双卡、小样本、独立输出目录）。
+# 参数：输入所选 GPU 与烟测参数（见实现默认）；输出 无。
 def launch():
     gpu_indices = select_idle_gpus()
     work_dir = os.path.dirname(
@@ -82,6 +88,8 @@ def launch():
     )
 
 
+# 用途：烟测入口：选择空闲 GPU 并启动短训练以验证管线完整性。
+# 参数：无输入；输出 无。
 def train():
     from diafno.training.config import OSTIATrainingConfig
     from diafno.training.trainer import OSTIATrainer

@@ -19,6 +19,8 @@ from deterministic_iafno.checkpoint_semantics import (
 from dataclasses import asdict
 
 
+# 用途：构造测试默认参数集的辅助函数。
+# 参数：见签名；输出 默认参数 dict。
 def build_defaults():
     defaults = dict(asdict(default_training_model()))
     defaults["split"] = "train"
@@ -27,6 +29,8 @@ def build_defaults():
 
 
 class ResumeRestoreTests(unittest.TestCase):
+    # 用途：验证裸 resume 恢复全部不可变语义。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_bare_resume_restores_immutable_semantics(self):
         checkpoint_config = OSTIATrainingConfig()
         checkpoint_config.model.sigma_max = 1.0
@@ -52,6 +56,8 @@ class ResumeRestoreTests(unittest.TestCase):
                 for notice in notices)
         )
 
+    # 用途：验证显式语义冲突时 fail-closed。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_explicit_conflict_fails_closed(self):
         checkpoint_config = OSTIATrainingConfig()
         checkpoint_config.model.p_mean = -3.0
@@ -73,6 +79,8 @@ class ResumeRestoreTests(unittest.TestCase):
                 build_defaults(),
             )
 
+    # 用途：验证等于默认值的显式 CLI 参数不被当作未提供。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_explicit_default_value_is_not_mistaken_for_bare_cli(self):
         checkpoint_config = OSTIATrainingConfig()
         checkpoint_config.model.p_mean = -3.0
@@ -92,6 +100,8 @@ class ResumeRestoreTests(unittest.TestCase):
                 explicit_fields={"p_mean"},
             )
 
+    # 用途：验证显式采样参数在警告下优先生效。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_explicit_sampler_default_wins_with_warning(self):
         checkpoint_config = OSTIATrainingConfig()
         checkpoint_config.model.sigma_max = 1.0
@@ -111,6 +121,8 @@ class ResumeRestoreTests(unittest.TestCase):
         self.assertEqual(current.model.sigma_max, 80)
         self.assertTrue(any("explicit CLI" in item for item in notices))
 
+    # 用途：验证采样参数冲突只警告不报错。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_sampler_conflict_is_warning_not_error(self):
         checkpoint_config = OSTIATrainingConfig()
         checkpoint_config.model.sampling_steps = 16
@@ -137,6 +149,8 @@ class ResumeRestoreTests(unittest.TestCase):
         )
         self.assertEqual(current.model.sigma_max, 1.0)
 
+    # 用途：验证裸 resume 恢复 lead stats 语义。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_lead_stats_restored_on_bare_resume(self):
         checkpoint_config = OSTIATrainingConfig()
         checkpoint_config.model.model_type = "deterministic"
@@ -167,6 +181,8 @@ class ResumeRestoreTests(unittest.TestCase):
         self.assertEqual(len(current.model.lead_mean), 15)
         self.assertEqual(len(current.model.lead_std), 15)
 
+    # 用途：验证 epoch 预算不一致需审核覆盖。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_num_epochs_mismatch_requires_reviewed_override(self):
         checkpoint = {
             "semantic_manifest": build_semantic_manifest(
@@ -196,6 +212,8 @@ class ResumeRestoreTests(unittest.TestCase):
                 for warning in warnings)
         )
 
+    # 用途：测试辅助函数。
+    # 参数：见函数签名（测试夹具辅助）；输出 测试用构造对象。
     def test_lr_mismatch_requires_override(self):
         checkpoint = {
             "semantic_manifest": build_semantic_manifest(
@@ -215,6 +233,8 @@ class ResumeRestoreTests(unittest.TestCase):
                 world_size=2,
             )
 
+    # 用途：验证 CLI lead stats 路径的保存-恢复往返。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_cli_lead_stats_path_roundtrip(self):
         payload = {
             "schema_version": 1,
@@ -252,6 +272,8 @@ class ResumeRestoreTests(unittest.TestCase):
             if os.path.isfile(stats_path):
                 os.remove(stats_path)
 
+    # 用途：验证 CLI 的 lead_standardized 语义必须提供统计量。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_cli_lead_standardized_requires_stats(self):
         args = build_parser().parse_args([
             "--model-type", "deterministic",
@@ -260,6 +282,8 @@ class ResumeRestoreTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "--lead-stats"):
             training_config_from_args(args)
 
+    # 用途：验证 CLI 记录显式给出的 resume 覆盖字段。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_cli_records_explicit_resume_fields(self):
         bare = training_config_from_args(
             build_parser().parse_args(["--resume"])

@@ -11,6 +11,8 @@ from deterministic_iafno.compute_lead_stats import (
 
 
 class LeadStatsTests(unittest.TestCase):
+    # 用途：验证残差累计器只统计 mask 有效像素。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_accumulator_respects_mask(self):
         accumulator = LeadStatsAccumulator(2)
         residual = np.array([
@@ -26,18 +28,24 @@ class LeadStatsTests(unittest.TestCase):
         self.assertEqual(result["lead_mean"], [2.0, 20.0])
         self.assertEqual(result["lead_std"], [1.0, 10.0])
 
+    # 用途：验证均匀抽样索引覆盖首尾两端。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_even_indices_cover_both_ends(self):
         indices = build_indices(100, 5)
         self.assertEqual(indices[0], 0)
         self.assertEqual(indices[-1], 99)
         self.assertEqual(len(indices), 5)
 
+    # 用途：验证 chunk 对齐索引按连续空间行分组。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_chunk_aware_indices_group_contiguous_spatial_rows(self):
         class DatasetStub:
             samples_per_day = 100
             sequences_per_window = 1000
             chunk_rows = 32
 
+            # 用途：测试桩的长度接口。
+            # 参数：无输入；输出 int。
             def __len__(self):
                 return (
                     self.samples_per_day

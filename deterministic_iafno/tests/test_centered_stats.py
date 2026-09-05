@@ -26,6 +26,8 @@ from deterministic_iafno.compute_centered_stats import (
 )
 
 
+# 用途：构造合法统计载荷的夹具。
+# 参数：见签名（可覆盖字段）；输出 载荷 dict。
 def valid_payload(**overrides):
     payload = {
         "schema_version": 1,
@@ -55,6 +57,8 @@ def valid_payload(**overrides):
 
 
 class CenteredStatsValidatorTests(unittest.TestCase):
+    # 用途：验证合法载荷通过校验。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_valid_payload_passes(self):
         validated = validate_centered_stats_payload(
             valid_payload(),
@@ -66,12 +70,16 @@ class CenteredStatsValidatorTests(unittest.TestCase):
         self.assertEqual(len(validated["lead_std"]), 15)
         self.assertEqual(len(validated["mean_lead_std"]), 15)
 
+    # 用途：验证 split 不符时失败。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_wrong_split_fails(self):
         with self.assertRaisesRegex(ValueError, "train split"):
             validate_centered_stats_payload(
                 valid_payload(split="val"), 15, 7, 15
             )
 
+    # 用途：验证缺失或错误 target_space 被拒绝。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_missing_or_wrong_target_space_fails(self):
         payload = valid_payload()
         del payload["target_space"]
@@ -85,12 +93,16 @@ class CenteredStatsValidatorTests(unittest.TestCase):
                 15,
             )
 
+    # 用途：验证 lead 数不符时失败。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_wrong_lead_count_fails(self):
         payload = valid_payload()
         payload["lead_std"] = [1.0] * 14
         with self.assertRaisesRegex(ValueError, "lead_std"):
             validate_centered_stats_payload(payload, 15, 7, 15)
 
+    # 用途：验证非正或非有限 std 被拒绝。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_nonpositive_or_nonfinite_std_fails(self):
         payload = valid_payload(lead_std=[0.0] + [1.0] * 14)
         with self.assertRaisesRegex(ValueError, "positive"):
@@ -106,6 +118,8 @@ class CenteredStatsValidatorTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "finite"):
             validate_centered_stats_payload(payload, 15, 7, 15)
 
+    # 用途：验证均值 SHA 不符时失败。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_wrong_mean_sha_fails(self):
         with self.assertRaisesRegex(ValueError, "locked frozen mean"):
             validate_centered_stats_payload(
@@ -115,6 +129,8 @@ class CenteredStatsValidatorTests(unittest.TestCase):
                 15,
             )
 
+    # 用途：验证缺失来源哈希被拒绝。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_missing_provenance_hashes_fail(self):
         payload = valid_payload()
         del payload["indices_sha256"]
@@ -125,6 +141,8 @@ class CenteredStatsValidatorTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "mean_semantics_sha256"):
             validate_centered_stats_payload(payload, 15, 7, 15)
 
+    # 用途：验证载荷含 val/test 键时被拒绝（防泄漏）。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_val_test_keys_rejected(self):
         for forbidden in ("val", "test", "val_indices", "test_indices",
                           "validation", "test_metadata"):
@@ -133,6 +151,8 @@ class CenteredStatsValidatorTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "must not contain"):
                 validate_centered_stats_payload(payload, 15, 7, 15)
 
+    # 用途：验证日数与条件模式不符时失败。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_wrong_days_and_condition_mode_fail(self):
         with self.assertRaisesRegex(ValueError, "input_days"):
             validate_centered_stats_payload(
@@ -143,6 +163,8 @@ class CenteredStatsValidatorTests(unittest.TestCase):
                 valid_payload(condition_mode="sst"), 15, 7, 15
             )
 
+    # 用途：验证索引 SHA256 的确定性。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_indices_sha256_deterministic(self):
         indices = np.arange(4096, dtype=np.int64)
         self.assertEqual(
@@ -162,6 +184,8 @@ class DatasetStub:
 class CenteredStatsEndToEndTests(unittest.TestCase):
     """Synthetic HDF5 + synthetic frozen-mean checkpoint end-to-end."""
 
+    # 用途：每个测试前的夹具准备。
+    # 参数：无输入；输出 无。
     def setUp(self):
         tests_dir = os.path.dirname(os.path.abspath(__file__))
         self.tmp_dir = os.path.join(tests_dir, ".tmp_centered_stats")
@@ -177,9 +201,13 @@ class CenteredStatsEndToEndTests(unittest.TestCase):
         self._write_mean_checkpoint()
         self.mean_sha = sha256_hex_file(self.mean_path)
 
+    # 用途：每个测试后的夹具清理。
+    # 参数：无输入；输出 无。
     def tearDown(self):
         shutil.rmtree(self.tmp_dir, ignore_errors=True)
 
+    # 用途：写测试用合成 HDF5 文件的辅助函数。
+    # 参数：见签名；输出 文件路径。
     def _write_h5(self):
         days = 40
         per_day = 100
@@ -205,6 +233,8 @@ class CenteredStatsEndToEndTests(unittest.TestCase):
             file.attrs["sst_mean"] = float(sst.mean())
             file.attrs["sst_std"] = float(sst.std())
 
+    # 用途：写测试用冻结均值 checkpoint 的辅助函数。
+    # 参数：见签名；输出 文件路径。
     def _write_mean_checkpoint(self):
         from diafno.training.artifacts import CheckpointManager
         from diafno.training.config import OSTIATrainingConfig
@@ -248,6 +278,8 @@ class CenteredStatsEndToEndTests(unittest.TestCase):
             random_states=[random_state],
         )
 
+    # 用途：临时替换锁定 SHA 常量的上下文管理器。
+    # 参数：输入 value（临时 SHA）；输出 上下文管理器。
     def _patch_locked_sha(self):
         return mock.patch(
             "deterministic_iafno.centered_stats."
@@ -255,6 +287,8 @@ class CenteredStatsEndToEndTests(unittest.TestCase):
             self.mean_sha,
         )
 
+    # 用途：验证统计载荷端到端生成及其确定性。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_end_to_end_stats_payload_and_determinism(self):
         with self._patch_locked_sha(), mock.patch(
                 "deterministic_iafno.compute_centered_stats."
@@ -384,6 +418,8 @@ class CenteredStatsEndToEndTests(unittest.TestCase):
             json.dumps(payload_again, sort_keys=True),
         )
 
+    # 用途：验证均值 SHA 不一致时 fail-closed。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_mean_sha_mismatch_fails_closed(self):
         # No patch: the real file SHA cannot equal the locked identity.
         with self.assertRaisesRegex(ValueError, "SHA-256 mismatch"):
@@ -398,6 +434,8 @@ class CenteredStatsEndToEndTests(unittest.TestCase):
                 use_amp=False,
             )
 
+    # 用途：验证全新输入校验的正反用例。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_fresh_input_validation_positive_and_negative(self):
         with self._patch_locked_sha(), mock.patch(
                 "deterministic_iafno.compute_centered_stats."
@@ -474,6 +512,8 @@ class CenteredStatsEndToEndTests(unittest.TestCase):
                     model_config,
                 )
 
+    # 用途：验证均值 sidecar 与 lead stats 不一致时失败。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_mean_sidecar_lead_stats_mismatch_fails(self):
         with self._patch_locked_sha():
             immutable = {

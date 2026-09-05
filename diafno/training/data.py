@@ -9,6 +9,8 @@ from torch.utils.data import DataLoader, Sampler
 from ..data.ostia import OSTIADailyDataset
 
 
+# 用途：dataloader worker 初始化钩子：按 worker 种子重设随机态，保证数据顺序可复现。
+# 参数：输入 worker_id（worker 序号）；输出 无。
 def seed_worker(worker_id):
     worker_seed = torch.initial_seed() % 2 ** 32
     random.seed(worker_seed)
@@ -16,6 +18,8 @@ def seed_worker(worker_id):
 
 
 class DistributedSpatialBlockSampler(Sampler):
+    # 用途：初始化分布式空间块采样器：按 seed 确定整 epoch 的样本计划并按 rank 切分。
+    # 参数：输入 dataset（数据集）、samples_per_epoch（每 epoch 样本数）、batch_size（每 rank 批大小）、num_replicas/rank（DDP 拓扑）、seed（随机种子）；输出 无。
     def __init__(
             self,
             dataset,
@@ -73,9 +77,13 @@ class DistributedSpatialBlockSampler(Sampler):
             // self.num_replicas
         )
 
+    # 用途：设置 epoch 号，使每个 epoch 的采样计划不同且可复现。
+    # 参数：输入 epoch（epoch 号）；输出 无。
     def set_epoch(self, epoch):
         self.epoch = epoch
 
+    # 用途：产出本 rank 当前 epoch 的批索引：样本按空间块分组打乱后顺序成批。
+    # 参数：无输入；输出 迭代器，逐批产出索引张量。
     def __iter__(self):
         generator = torch.Generator()
         generator.manual_seed(self.seed + self.epoch)
@@ -112,11 +120,15 @@ class DistributedSpatialBlockSampler(Sampler):
             )
         return iter(indices)
 
+    # 用途：返回本 rank 每个 epoch 的批数。
+    # 参数：无输入；输出 int 批数。
     def __len__(self):
         return self.num_samples
 
 
 class OSTIATrainingData:
+    # 用途：保存配置与运行时引用，数据组件延后到 setup() 构建。
+    # 参数：输入 config（训练配置）、runtime（分布式运行时）；输出 无。
     def __init__(self, config, runtime):
         self.config = config
         self.runtime = runtime
@@ -124,6 +136,8 @@ class OSTIATrainingData:
         self.sampler = None
         self.loader = None
 
+    # 用途：构建数据集、采样器与 DataLoader（含 seed_worker 与分布式切分）。
+    # 参数：无输入；输出 无（组件写入实例属性）。
     def setup(self):
         model_config = self.config.model
         self.dataset = OSTIADailyDataset(

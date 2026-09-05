@@ -12,6 +12,8 @@ from deterministic_iafno.centered_stats import (
 )
 
 
+# 用途：返回 OSTIA 训练的出厂默认模型配置（保留旧 absolute 语义默认值以兼容旧 checkpoint）。
+# 参数：无输入；输出 OSTIAModelConfig 实例。
 def default_training_model():
     """Factory default model config for OSTIA training.
 
@@ -59,6 +61,8 @@ _CONFIG_JSON_FIELDS = (
 )
 
 
+# 用途：用权威训练配置 JSON 填充未被 CLI 显式给出的参数（显式值优先）。
+# 参数：输入 args（解析后的 CLI args）、config_path（配置 JSON 路径）；输出 填充后的 args。
 def merge_config_json(args, config_path):
     """Fill CLI args from an authoritative training config JSON.
 
@@ -138,6 +142,8 @@ class OSTIATrainingConfig:
     condition_mode: str = "sst_mask"
 
 
+# 用途：构建训练入口的完整 argparse 参数集。
+# 参数：无输入；输出 ArgumentParser。
 def build_parser():
     parser = argparse.ArgumentParser(
         description="Train DiAFNO for OSTIA SST forecasting"
@@ -235,6 +241,8 @@ def build_parser():
     return parser
 
 
+# 用途：把 CLI args 归纳为训练配置对象并派生有效 batch 等训练语义。
+# 参数：输入 args（CLI args）；输出 训练配置对象。
 def training_config_from_args(args):
     config = OSTIATrainingConfig()
     explicit_resume_fields = []
@@ -352,6 +360,8 @@ def training_config_from_args(args):
     return config
 
 
+# 用途：centered_diffusion 训练的 fail-closed CLI 规则（冻结均值、统计量、语义字段必须齐备且一致）。
+# 参数：输入 config（训练配置）、explicit_resume_fields（CLI 显式给出的可覆盖字段）；输出 无（违规抛异常）。
 def _apply_centered_config_rules(config, explicit_resume_fields):
     """Fail-closed CLI rules for centered_diffusion runs.
 
@@ -417,6 +427,8 @@ def _apply_centered_config_rules(config, explicit_resume_fields):
         )
 
 
+# 用途：校验 lead 统计 JSON 载荷并返回规范化结果（train split、长度、正值 std 等硬约束）。
+# 参数：输入 stats（统计量 dict）、target_chans/input_days/output_days（期望维度）；输出 规范化后的统计量 dict（不合法抛异常）。
 def validate_lead_stats_dict(
         stats,
         target_chans,

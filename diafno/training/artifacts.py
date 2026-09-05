@@ -21,6 +21,8 @@ from deterministic_iafno.checkpoint_semantics import (
 
 
 class TrainingHistory:
+    # 用途：初始化训练历史记录器（损失/梯度序列与 AMP 跳步列表）及曲线输出目录。
+    # 参数：输入 output_dir（输出目录）、max_grad_norm（梯度裁剪上限，仅用于记录）；输出 无。
     def __init__(self, output_dir, max_grad_norm):
         self.output_dir = output_dir
         self.max_grad_norm = max_grad_norm
@@ -30,17 +32,25 @@ class TrainingHistory:
         self.gradient_norms = []
         self.skipped_optimizer_steps = []
 
+    # 用途：追加一条优化器步的损失记录。
+    # 参数：输入 step（全局优化步）、value（损失值）；输出 无。
     def record_loss(self, step, value):
         self.loss_steps.append(step)
         self.loss_values.append(value)
 
+    # 用途：追加一条梯度范数记录。
+    # 参数：输入 step（全局优化步）、value（梯度范数）；输出 无。
     def record_gradient(self, step, value):
         self.gradient_steps.append(step)
         self.gradient_norms.append(value)
 
+    # 用途：记录一次被 AMP 溢出跳过的优化步。
+    # 参数：输入 step（全局优化步）；输出 无。
     def record_skipped_step(self, step):
         self.skipped_optimizer_steps.append(step)
 
+    # 用途：续训时从磁盘恢复已有训练历史，保证曲线连续。
+    # 参数：无输入；输出 无（填充内部序列）。
     def load(self):
         path = os.path.join(
             self.output_dir,
@@ -66,6 +76,8 @@ class TrainingHistory:
                     "skipped_optimizer_steps"
                 ].astype(np.int64).tolist()
 
+    # 用途：把训练历史写盘（jsonl/npz）并重绘两条曲线 PNG。
+    # 参数：无输入；输出 无。
     def save(self):
         os.makedirs(self.output_dir, exist_ok=True)
         np.savez(
@@ -97,6 +109,8 @@ class TrainingHistory:
         self._save_loss_curve()
         self._save_gradient_curve()
 
+    # 用途：渲染并保存训练损失曲线图。
+    # 参数：无输入（读内部序列）；输出 无。
     def _save_loss_curve(self):
         if not self.loss_values:
             return
@@ -121,6 +135,8 @@ class TrainingHistory:
         )
         plt.close()
 
+    # 用途：渲染并保存梯度范数曲线图（含裁剪上限参考线）。
+    # 参数：无输入（读内部序列）；输出 无。
     def _save_gradient_curve(self):
         if not self.gradient_norms:
             return
@@ -155,16 +171,22 @@ class TrainingHistory:
 
 
 class CheckpointManager:
+    # 用途：初始化 checkpoint 管理器并登记语义配置。
+    # 参数：输入 config（训练配置对象）；输出 无。
     def __init__(self, config):
         self.config = config
 
     @staticmethod
+    # 用途：剥离 DDP 包装返回原模型（static 方法）。
+    # 参数：输入 model（任意层包装的模型）；输出 原始 nn.Module。
     def unwrap_model(model):
         if isinstance(model, DDP):
             return model.module
         return model
 
     @staticmethod
+    # 用途：捕获 python/numpy/torch(+CUDA) 全部随机态用于精确续训。
+    # 参数：无输入；输出 随机态字典。
     def capture_random_state():
         cuda_random_state = []
         if torch.cuda.is_available():
@@ -177,6 +199,8 @@ class CheckpointManager:
         }
 
     @staticmethod
+    # 用途：恢复 capture_random_state 保存的随机态。
+    # 参数：输入 random_state（随机态字典）；输出 无。
     def restore_random_state(random_state):
         torch.set_rng_state(
             random_state["torch"].cpu()
@@ -194,6 +218,8 @@ class CheckpointManager:
         np.random.set_state(random_state["numpy"])
         random.setstate(random_state["python"])
 
+    # 用途：加载 checkpoint：校验语义 sidecar（fail-closed）、恢复模型/优化器/调度器/scaler/随机态，并应用显式审核过的覆盖。
+    # 参数：输入 path（checkpoint 路径）、model/optimizer/scheduler/scaler（待恢复对象）、device（设备）、rank/world_size（DDP 信息）；输出 无（语义不一致抛异常）。
     def load(
             self,
             path,
@@ -319,6 +345,8 @@ class CheckpointManager:
             )
         return checkpoint
 
+    # 用途：把显式审核过的优化器/调度语义覆盖应用到已恢复的对象（--allow-resume-override 路径）。
+    # 参数：输入 optimizer/scheduler（已恢复对象）、mismatches（兼容字段差异）、desired_scheduler（目标调度参数）；输出 无。
     def _apply_compatible_overrides(
             self,
             optimizer,
@@ -374,6 +402,8 @@ class CheckpointManager:
                 for group in optimizer.param_groups
             ]
 
+    # 用途：保存完整 checkpoint：模型/优化器/调度器/scaler/epoch/step/损失/随机态，并同步写语义 sidecar。
+    # 参数：输入 path（保存路径）及各状态对象与元数据（dataset、skipped 步信息等）；输出 无。
     def save(
             self,
             path,

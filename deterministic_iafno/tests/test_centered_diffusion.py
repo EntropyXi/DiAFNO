@@ -13,6 +13,8 @@ class RecordingMean(nn.Module):
     """Deterministic mean stub whose predict() returns a constant
     per-lead normalized residual."""
 
+    # 用途：测试桩的初始化。
+    # 参数：见签名；输出 无。
     def __init__(self, values=(0.0, 0.0)):
         super().__init__()
         self.values = nn.Parameter(torch.tensor(
@@ -20,11 +22,15 @@ class RecordingMean(nn.Module):
         ), requires_grad=False)
         self.train_calls = 0
 
+    # 用途：执行短训练的测试辅助。
+    # 参数：见签名；输出 无。
     def train(self, mode=True):
         super().train(mode)
         self.train_calls += 1
         return self
 
+    # 用途：执行一次预测的测试辅助。
+    # 参数：见签名；输出 预测结果。
     def predict(self, condition):
         shape = (
             condition.shape[0],
@@ -39,6 +45,8 @@ class RecordingMean(nn.Module):
 class RecordingDiffusion(nn.Module):
     """Diffusion stub recording the standardized target it receives."""
 
+    # 用途：测试桩的初始化。
+    # 参数：见签名；输出 无。
     def __init__(self):
         super().__init__()
         self.channels = 2
@@ -55,6 +63,8 @@ class RecordingDiffusion(nn.Module):
         self.last_seed = None
         self.sample_output = None
 
+    # 用途：执行一次前向的测试辅助。
+    # 参数：见签名；输出 模型输出。
     def forward(self, target, condition, target_mask=None):
         self.last_target = target.detach().clone()
         self.last_mask = (
@@ -68,6 +78,8 @@ class RecordingDiffusion(nn.Module):
         return (target * target).mean() + weight_sum
 
     @torch.no_grad()
+    # 用途：执行一次采样的测试辅助。
+    # 参数：见签名；输出 采样结果。
     def sample(self, condition, num_sample_steps=None, seed=None):
         self.sample_calls += 1
         self.last_num_steps = num_sample_steps
@@ -83,6 +95,8 @@ class RecordingDiffusion(nn.Module):
         )
 
 
+# 用途：构建测试用 centered 包装器的辅助函数。
+# 参数：见签名；输出 包装器实例。
 def build_wrapper(innovation_mean=(0.0, 0.0), innovation_std=(1.0, 1.0),
                   mean_values=(0.0, 0.0), diffusion=None):
     mean = RecordingMean(mean_values)
@@ -97,11 +111,15 @@ def build_wrapper(innovation_mean=(0.0, 0.0), innovation_std=(1.0, 1.0),
     ), mean, diffusion
 
 
+# 用途：构造测试用条件张量的辅助函数。
+# 参数：见签名；输出 条件张量。
 def condition(batch=2):
     return torch.randn(batch, 8, 2, 2, 1)
 
 
 class CenteredAlgebraTests(unittest.TestCase):
+    # 用途：验证 forward 计算的是标准化 innovation。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_forward_computes_standardized_innovation(self):
         wrapper, mean, diffusion = build_wrapper(
             innovation_mean=(1.0, -1.0),
@@ -120,6 +138,8 @@ class CenteredAlgebraTests(unittest.TestCase):
             diffusion.last_target, expected, atol=1e-6
         ))
 
+    # 用途：验证 forward 把 target_mask 透传给内部扩散。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_forward_passes_target_mask_through(self):
         wrapper, mean, diffusion = build_wrapper()
         cond = condition()
@@ -130,6 +150,8 @@ class CenteredAlgebraTests(unittest.TestCase):
             diffusion.last_mask, mask
         ))
 
+    # 用途：验证 AMP 下标准化仍保持 fp32。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_standardization_stays_fp32_under_amp(self):
         wrapper, mean, diffusion = build_wrapper()
         cond = condition()
@@ -139,6 +161,8 @@ class CenteredAlgebraTests(unittest.TestCase):
             diffusion.last_target.dtype, torch.float32
         )
 
+    # 用途：验证形状不一致时失败。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_shape_mismatch_fails(self):
         wrapper, mean, diffusion = build_wrapper()
         with self.assertRaisesRegex(ValueError, "batch sizes"):
@@ -156,6 +180,8 @@ class CenteredAlgebraTests(unittest.TestCase):
 
 
 class CenteredFreezeTests(unittest.TestCase):
+    # 用途：验证均值冻结且扩散分支可训练。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_mean_frozen_and_diffusion_trainable(self):
         wrapper, mean, diffusion = build_wrapper()
         for parameter in mean.parameters():
@@ -170,6 +196,8 @@ class CenteredFreezeTests(unittest.TestCase):
             parameter is not mean.values for parameter in trainable
         ))
 
+    # 用途：验证 train() 下均值模型保持 eval。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_train_mode_keeps_mean_eval(self):
         wrapper, mean, diffusion = build_wrapper()
         self.assertFalse(mean.training)
@@ -180,6 +208,8 @@ class CenteredFreezeTests(unittest.TestCase):
         wrapper.train()
         self.assertFalse(mean.training)
 
+    # 用途：验证反向传播只更新扩散分支、均值模型梯度为零。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_backward_updates_diffusion_not_mean(self):
         wrapper, mean, diffusion = build_wrapper()
         cond = condition()
@@ -188,6 +218,8 @@ class CenteredFreezeTests(unittest.TestCase):
         self.assertIsNone(mean.values.grad)
         self.assertIsNotNone(diffusion.linear.weight.grad)
 
+    # 用途：验证优化器参数列表排除 mean_model。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_optimizer_params_exclude_mean(self):
         wrapper, mean, diffusion = build_wrapper()
         optimizer = torch.optim.AdamW(
@@ -207,6 +239,8 @@ class CenteredFreezeTests(unittest.TestCase):
 
 
 class CenteredSamplingTests(unittest.TestCase):
+    # 用途：验证标准化-反变换往返。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_transform_inverse_round_trip(self):
         wrapper, mean, diffusion = build_wrapper(
             innovation_mean=(0.3, -0.2),
@@ -220,6 +254,8 @@ class CenteredSamplingTests(unittest.TestCase):
             innovation, restored, atol=1e-6
         ))
 
+    # 用途：验证采样返回不含 anchor 的 normalized residual。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_sample_returns_normalized_residual_no_anchor(self):
         # mean=(mu), z_hat=0 -> r_hat = mu + m (+0).  The wrapper must
         # NOT add the day-7 anchor and must NOT denormalize to SST.
@@ -240,6 +276,8 @@ class CenteredSamplingTests(unittest.TestCase):
         ).view(1, 2, 1, 1, 1).expand(1, 2, 2, 2, 1)
         self.assertTrue(torch.allclose(forecast, expected, atol=1e-6))
 
+    # 用途：验证零 innovation 时退化为确定性均值。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_zero_innovation_degenerates_to_deterministic_mean(self):
         # With zero innovation stats (m=0, s=1), a zero z_hat sample
         # must equal the deterministic mean exactly.
@@ -255,6 +293,8 @@ class CenteredSamplingTests(unittest.TestCase):
         ).expand(1, 2, 2, 2, 1)
         self.assertTrue(torch.allclose(forecast, mu, atol=1e-6))
 
+    # 用途：验证采样器属性的双向透传。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_sampler_attributes_two_way_delegation(self):
         wrapper, mean, diffusion = build_wrapper()
         self.assertEqual(wrapper.S_churn, diffusion.S_churn)
@@ -278,6 +318,8 @@ class CenteredSamplingTests(unittest.TestCase):
         self.assertEqual(diffusion.num_sample_steps, 32)
         self.assertEqual(wrapper.num_sample_steps, 32)
 
+    # 用途：验证非法 innovation 统计被拒绝。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_invalid_innovation_stats_fail(self):
         with self.assertRaisesRegex(ValueError, "channels"):
             FrozenMeanCenteredDiffusion(
@@ -294,6 +336,8 @@ class CenteredSamplingTests(unittest.TestCase):
                 lead_std=[1.0, 0.0],
             )
 
+    # 用途：验证包装器不暴露 preconditioned_network_forward。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_no_preconditioned_network_forward_exposed(self):
         wrapper, mean, diffusion = build_wrapper()
         self.assertFalse(hasattr(
@@ -304,6 +348,8 @@ class CenteredSamplingTests(unittest.TestCase):
 class CenteredTinyBackboneTests(unittest.TestCase):
     """CPU forward/backward/sample through the real IAFNODiff trunks."""
 
+    # 用途：构建测试用对象的辅助函数。
+    # 参数：见签名；输出 测试用对象。
     def _build(self):
         from diafno.models.config import OSTIAModelConfig
         config = OSTIAModelConfig(
@@ -333,6 +379,8 @@ class CenteredTinyBackboneTests(unittest.TestCase):
         model = config.build_model(torch.device("cpu"))
         return config, model
 
+    # 用途：验证前向反向的损失与梯度均有限。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_forward_backward_finite(self):
         config, model = self._build()
         cond = torch.randn(2, 3, 8, 8, 1)
@@ -356,6 +404,8 @@ class CenteredTinyBackboneTests(unittest.TestCase):
             for parameter in model.mean_model.parameters()
         ))
 
+    # 用途：验证采样输出为有限的 normalized residual。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_sample_finite_normalized_residual(self):
         config, model = self._build()
         cond = torch.randn(1, 3, 8, 8, 1)
@@ -363,6 +413,8 @@ class CenteredTinyBackboneTests(unittest.TestCase):
         self.assertEqual(tuple(forecast.shape), (1, 2, 8, 8, 1))
         self.assertTrue(torch.isfinite(forecast).all())
 
+    # 用途：验证 state_dict 包含冻结均值权重。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_state_dict_contains_frozen_mean(self):
         config, model = self._build()
         keys = set(model.state_dict().keys())

@@ -8,6 +8,8 @@ import torch.distributed as dist
 
 
 class DistributedRuntime:
+    # 用途：初始化分布式运行时占位（默认单进程语义）。
+    # 参数：无输入；输出 无。
     def __init__(self):
         self.distributed = False
         self.rank = 0
@@ -16,9 +18,13 @@ class DistributedRuntime:
         self.device = torch.device("cpu")
 
     @property
+    # 用途：判断当前进程是否为主进程（rank 0 或单进程）。
+    # 参数：无输入；输出 布尔值。
     def is_main_process(self):
         return self.rank == 0
 
+    # 用途：初始化 DDP 进程组（env://，单卡时退化为无分布式）。
+    # 参数：无输入；输出 无。
     def setup(self):
         self.world_size = int(
             os.environ.get("WORLD_SIZE", "1")
@@ -46,15 +52,21 @@ class DistributedRuntime:
             )
         return self
 
+    # 用途：同步屏障（单进程时为空操作）。
+    # 参数：无输入；输出 无。
     def barrier(self):
         if self.distributed:
             dist.barrier()
 
+    # 用途：销毁 DDP 进程组。
+    # 参数：无输入；输出 无。
     def cleanup(self):
         if dist.is_available() and dist.is_initialized():
             dist.destroy_process_group()
 
 
+# 用途：统一设置 python/numpy/torch(+CUDA) 全局随机种子（按 rank 偏移）。
+# 参数：输入 seed（基础种子）、rank（进程序号）；输出 无。
 def set_random_seed(seed, rank):
     current_seed = seed + rank
     random.seed(current_seed)

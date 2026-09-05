@@ -30,6 +30,8 @@ TARGET_CHANS = 15
 H, W, Z = 448, 448, 1
 
 
+# 用途：解析显存探测参数（架构配置、batch 梯度、预热与计量步数）。
+# 参数：无输入；输出 解析后的 args。
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -59,6 +61,8 @@ def parse_args():
     return parser.parse_args()
 
 
+# 用途：生成随机合成批次（条件/目标/mask）用于探测。
+# 参数：输入 batch（批大小）、device（设备）；输出 (condition, target, target_mask)。
 def make_batch(batch, device):
     condition = torch.randn(
         batch, COND_CHANS, H, W, Z, device=device
@@ -74,9 +78,13 @@ def make_batch(batch, device):
     return condition, target, target_mask
 
 
+# 用途：执行预热与正式 forward/backward，测量峰值显存与秒/迭代。
+# 参数：输入 batch（批大小）、model（模型）、scaler（AMP scaler）、amp_enabled（是否 AMP）、warmup（预热步数）、steps（计量步数）；输出 计量结果 dict。
 def probe(batch, model, scaler, amp_enabled, warmup, steps):
     device = next(model.parameters()).device
 
+    # 用途：单次 forward/backward/step 的闭包（含 AMP 与梯度检查）。
+    # 参数：输入 condition/target/target_mask（合成批）；输出 无。
     def step(condition, target, target_mask):
         with autocast("cuda", enabled=amp_enabled):
             loss = model(target, condition, target_mask)
@@ -98,6 +106,8 @@ def probe(batch, model, scaler, amp_enabled, warmup, steps):
     return allocated, reserved
 
 
+# 用途：入口：构建模型并按 batch 梯度逐档探测显存与吞吐。
+# 参数：无输入（读命令行）；输出 无（结果打印/落盘）。
 def main():
     args = parse_args()
     if not torch.cuda.is_available():

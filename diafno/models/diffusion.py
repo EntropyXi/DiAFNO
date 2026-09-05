@@ -17,9 +17,13 @@ from einops import rearrange, reduce
 
 # helpers
 
+# 用途：判断对象是否非 None 的工具函数。
+# 参数：输入 val（任意对象）；输出 布尔值。
 def exists(val):
     return val is not None
 
+# 用途：val 为 None 时回退到默认值的工具函数。
+# 参数：输入 val（可能为 None 的值）、d（默认值或无参工厂）；输出 val 或 d 的结果。
 def default(val, d):
     if exists(val):
         return val
@@ -27,12 +31,16 @@ def default(val, d):
 
 # tensor helpers
 
+# 用途：安全取对数（钳到下限 eps）。
+# 参数：输入 t（正张量）、eps（对数下限，默认 1e-20）；输出 log(t)。
 def log(t, eps = 1e-20):
     return torch.log(t.clamp(min = eps))
 
 # main class
 
 class ElucidatedDiffusion(nn.Module):
+    # 用途：装配 EDM：登记主干与 σ 调度、训练分布及随机采样 churn 超参。
+    # 参数：输入 net（去噪主干）、channels（目标通道数）、image_size_h/w/z（空间尺寸）、num_sample_steps（默认采样步数）、sigma_min/sigma_max/sigma_data/rho（σ 调度参数）、P_mean/P_std（训练 σ 对数正态分布）、S_churn/S_tmin/S_tmax/S_noise（随机采样 churn 参数）；输出 无（构造模块状态）。
     def __init__(
             self,
             net,
@@ -76,17 +84,23 @@ class ElucidatedDiffusion(nn.Module):
         self.S_noise = S_noise
 
     @property
+    # 用途：property：返回主干参数所在设备。
+    # 参数：无输入；输出 torch.device。
     def device(self):
         return next(self.net.parameters()).device
 
     ##### derived preconditioning params - Table 1
 
+    # 用途：EDM 预条件系数 c_skip = σ_data²/(σ²+σ_data²)。
+    # 参数：输入 sigma（σ 张量）；输出 同形 c_skip 系数。
     def c_skip(self, sigma):
         return (
             self.sigma_data ** 2
             / (sigma ** 2 + self.sigma_data ** 2)
         )
 
+    # 用途：EDM 预条件系数 c_out = σ·σ_data/√(σ²+σ_data²)。
+    # 参数：输入 sigma（σ 张量）；输出 同形 c_out 系数。
     def c_out(self, sigma):
         return (
             sigma
@@ -94,17 +108,23 @@ class ElucidatedDiffusion(nn.Module):
             * (self.sigma_data ** 2 + sigma ** 2) ** -0.5
         )
 
+    # 用途：EDM 预条件系数 c_in = 1/√(σ²+σ_data²)。
+    # 参数：输入 sigma（σ 张量）；输出 同形 c_in 系数。
     def c_in(self, sigma):
         return (
             1
             * (sigma ** 2 + self.sigma_data ** 2) ** -0.5
         )
 
+    # 用途：计算 σ 的时间嵌入输入 c_noise = ln(σ)/4。
+    # 参数：输入 sigma（σ 张量）；输出 0.25*log(σ)。
     def c_noise(self, sigma):
         return log(sigma) * 0.25
 
     ##### preconditioned network output
 
+    # 用途：计算预条件去噪输出 D_θ = c_skip·x + c_out·F_θ(c_in·x, c_noise)。
+    # 参数：输入 noised_target（加噪目标 x）、sigma（σ，标量或 [B]）、condition（条件场）；输出 与目标同形的去噪预测。
     def preconditioned_network_forward(
             self,
             noised_target,
@@ -142,6 +162,8 @@ class ElucidatedDiffusion(nn.Module):
 
     ##### sampling schedule
 
+    # 用途：生成 ρ=7 的 σ 指数递减采样序列，并在末端补 0。
+    # 参数：输入 num_sample_steps（步数，缺省用构造值）；输出 形状 [N+1] 的 σ 序列（首=σ_max，末=0）。
     def sample_schedule(self, num_sample_steps=None):
 
         num_sample_steps = default(
@@ -181,6 +203,8 @@ class ElucidatedDiffusion(nn.Module):
         return sigmas
 
     @torch.no_grad()
+    # 用途：EDM 随机采样：从 σ_max 高斯噪声出发，逐步 churn 噪声注入 + 二阶 Heun 修正去噪。
+    # 参数：输入 condition（条件场 [B,cond_chans,H,W,Z]）、num_sample_steps（步数，覆盖默认）、seed（可复现随机种子）；输出 采样的目标场 [B,channels,H,W,Z]。
     def sample(
             self,
             condition,
@@ -344,6 +368,8 @@ class ElucidatedDiffusion(nn.Module):
 
     ##### training
 
+    # 用途：EDM 损失权重 λ(σ) = (σ²+σ_data²)/(σ·σ_data)²。
+    # 参数：输入 sigma（σ 张量）；输出 同形权重。
     def loss_weight(self, sigma):
         return (
             sigma ** 2 + self.sigma_data ** 2
@@ -351,6 +377,8 @@ class ElucidatedDiffusion(nn.Module):
             sigma * self.sigma_data
         ) ** -2
 
+    # 用途：从 LogNormal(P_mean, P_std) 采样训练噪声强度。
+    # 参数：输入 batch_size（批大小）；输出 形状 [B] 的 σ。
     def noise_distribution(self, batch_size):
         return (
             self.P_mean
@@ -361,6 +389,8 @@ class ElucidatedDiffusion(nn.Module):
             )
         ).exp()
 
+    # 用途：EDM 训练前向：加噪、预条件去噪、有效像素上的均方误差并乘 λ(σ)。
+    # 参数：输入 target（目标场 [B,C,H,W,Z]）、condition（条件场）、target_mask（有效像素 mask，可选，广播到 C）；输出 标量平均损失。
     def forward(
             self,
             target,

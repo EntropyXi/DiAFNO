@@ -7,6 +7,8 @@ from .config import (
 from .trainer import OSTIATrainer
 
 
+# 用途：训练入口：解析 CLI、合并权威配置、装配训练器并启动训练。
+# 参数：无输入（读命令行）；输出 无。
 def main():
     args = build_parser().parse_args()
     if getattr(args, "config", None) is not None:

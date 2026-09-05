@@ -7,6 +7,8 @@ import torch
 
 
 class InferenceSampleWriter:
+    # 用途：初始化样本写出器：建立输出目录并登记 checkpoint 元信息。
+    # 参数：输入 output_dir（输出目录）、checkpoint_path（来源 checkpoint）、sampling_steps（采样步数）、save_members（是否保存逐成员）、compress（是否压缩）；输出 无。
     def __init__(
             self,
             output_dir,
@@ -23,6 +25,8 @@ class InferenceSampleWriter:
         os.makedirs(output_dir, exist_ok=True)
 
     @staticmethod
+    # 用途：从批次元数据中取出第 index 个样本的元数据并转为纯 python 类型。
+    # 参数：输入 metadata（元数据列表）、index（批内序号）；输出 该样本的元数据 dict。
     def metadata_item(metadata, index):
         if metadata is None:
             return {}
@@ -52,6 +56,8 @@ class InferenceSampleWriter:
         return {"metadata": str(metadata)}
 
     @staticmethod
+    # 用途：把张量转回 CPU numpy（static 方法）。
+    # 参数：输入 value（torch 张量或数组）；输出 numpy 数组。
     def to_numpy(value):
         if value is None:
             return None
@@ -64,6 +70,8 @@ class InferenceSampleWriter:
             )
         return np.asarray(value, dtype=np.float32)
 
+    # 用途：保存单个样本的预测/真值/mask、逐成员与元数据（npz/json）。
+    # 参数：输入 index（样本号）、prediction/target/target_mask（数组）、ensemble_members（成员数组）、metadata（元数据）；输出 无。
     def save(
             self,
             index,
