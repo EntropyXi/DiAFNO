@@ -6,6 +6,8 @@ from ..models.config import OSTIAModelConfig
 
 class InferenceModelLoader:
     @staticmethod
+    # 用途：按 checkpoint 语义加载推理模型（读 sidecar 重建配置，可覆盖采样步数）。
+    # 参数：输入 checkpoint_path（checkpoint 路径）、device（设备）、sampling_steps（覆盖采样步数，可选）；输出 组装好的推理模型。
     def load(
             checkpoint_path,
             device,

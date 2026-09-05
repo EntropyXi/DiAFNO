@@ -7,6 +7,8 @@ from diafno.training.config import (
 
 
 class LeadStatsValidationTests(unittest.TestCase):
+    # 用途：构造合法统计载荷的夹具。
+    # 参数：见签名（可覆盖字段）；输出 载荷 dict。
     def valid_payload(self):
         return {
             "schema_version": 1,
@@ -23,6 +25,8 @@ class LeadStatsValidationTests(unittest.TestCase):
             "lead_std": [1.0 + value for value in range(15)],
         }
 
+    # 用途：验证合法载荷通过校验。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_valid_payload_passes(self):
         mean, std = validate_lead_stats_dict(
             self.valid_payload(),
@@ -34,6 +38,8 @@ class LeadStatsValidationTests(unittest.TestCase):
         self.assertEqual(len(std), 15)
         self.assertGreater(min(std), 0.0)
 
+    # 用途：验证缺失键被拒绝。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_missing_keys_fail(self):
         payload = self.valid_payload()
         del payload["lead_mean"]
@@ -42,6 +48,8 @@ class LeadStatsValidationTests(unittest.TestCase):
                 payload, 15, 7, 15
             )
 
+    # 用途：验证长度不符时失败。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_wrong_length_fails(self):
         payload = self.valid_payload()
         payload["lead_std"] = [1.0] * 14
@@ -50,6 +58,8 @@ class LeadStatsValidationTests(unittest.TestCase):
                 payload, 15, 7, 15
             )
 
+    # 用途：验证非正 std 被拒绝。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_nonpositive_std_fails(self):
         payload = self.valid_payload()
         payload["lead_std"][3] = 0.0
@@ -58,6 +68,8 @@ class LeadStatsValidationTests(unittest.TestCase):
                 payload, 15, 7, 15
             )
 
+    # 用途：验证非有限统计量被拒绝。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_nonfinite_stats_fail(self):
         payload = self.valid_payload()
         payload["lead_mean"][2] = float("nan")
@@ -69,6 +81,8 @@ class LeadStatsValidationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "finite"):
             validate_lead_stats_dict(payload, 15, 7, 15)
 
+    # 用途：验证 target_space 不符时失败。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_wrong_target_space_fails(self):
         payload = self.valid_payload()
         payload["target_space"] = "absolute_sst"
@@ -77,6 +91,8 @@ class LeadStatsValidationTests(unittest.TestCase):
                 payload, 15, 7, 15
             )
 
+    # 用途：验证 split 不符时失败。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_wrong_split_fails(self):
         payload = self.valid_payload()
         payload["split"] = "test"
@@ -85,6 +101,8 @@ class LeadStatsValidationTests(unittest.TestCase):
                 payload, 15, 7, 15
             )
 
+    # 用途：验证日数不符时失败。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_wrong_days_fail(self):
         payload = self.valid_payload()
         payload["input_days"] = 14

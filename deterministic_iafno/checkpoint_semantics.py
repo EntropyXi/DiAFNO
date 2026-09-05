@@ -71,6 +71,8 @@ COMPATIBLE_STRICT_FIELDS = (
 COMPATIBLE_RECORDED_FIELDS = ()
 
 
+# 用途：把 numpy 标量/数组递归转为纯 python 类型（JSON 化辅助）。
+# 参数：输入 value（任意对象）；输出 JSON 可序列化对象。
 def _plain(value):
     if isinstance(value, tuple):
         return [_plain(item) for item in value]
@@ -84,12 +86,16 @@ def _plain(value):
     return value
 
 
+# 用途：从模型配置提取参与语义清单的模型字段值。
+# 参数：输入 config（模型配置）；输出 字段名到值的 dict。
 def _model_values(config):
     if hasattr(config.model, "to_checkpoint"):
         return _plain(config.model.to_checkpoint())
     return _plain(vars(config.model))
 
 
+# 用途：构建 checkpoint 的语义清单：模型、数据与训练噪声语义加 world_size。
+# 参数：输入 config（训练配置）、world_size（DDP 规模）；输出 语义清单 dict。
 def build_semantic_manifest(config, world_size=1):
     model_values = _model_values(config)
     immutable = {
@@ -142,6 +148,8 @@ def build_semantic_manifest(config, world_size=1):
     }
 
 
+# 用途：比较期望与实际语义字典的差异。
+# 参数：输入 expected/actual（两个 dict）；输出 差异描述列表（空=一致）。
 def _diff(expected, actual):
     keys = sorted(set(expected) | set(actual))
     return {
@@ -154,6 +162,8 @@ def _diff(expected, actual):
     }
 
 
+# 用途：为无 sidecar 的旧 checkpoint 构造降级语义清单（仅含其存储的字段）。
+# 参数：输入 checkpoint（checkpoint dict）、config（当前配置）；输出 降级清单或 None。
 def _legacy_manifest(checkpoint, config):
     checkpoint_model = _plain(checkpoint.get("config", {}))
     if (
@@ -191,6 +201,8 @@ def _legacy_manifest(checkpoint, config):
     }
 
 
+# 用途：校验 checkpoint 语义清单与当前配置一致（fail-closed，区分不可变语义与可覆盖字段）。
+# 参数：输入 checkpoint（checkpoint dict）、config（当前配置）、world_size（DDP 规模）；输出 不匹配清单（不兼容时抛异常）。
 def validate_semantic_manifest(
         checkpoint,
         config,
@@ -274,6 +286,8 @@ def validate_semantic_manifest(
     return warnings
 
 
+# 用途：返回可显式覆盖的兼容字段差异（优化器/调度/batch 预算等）。
+# 参数：输入 checkpoint、config、world_size；输出 兼容差异列表。
 def get_compatible_mismatches(checkpoint, config, world_size=1):
     """Return saved-vs-current optimizer/schedule/batch differences.
 
@@ -295,6 +309,8 @@ def get_compatible_mismatches(checkpoint, config, world_size=1):
     return _diff(current_compatible, saved_compatible)
 
 
+# 用途：由 checkpoint 路径导出语义 sidecar 路径（<名>.semantics.json）。
+# 参数：输入 checkpoint_path；输出 sidecar 路径。
 def sidecar_path_for(checkpoint_path):
     """Return the per-checkpoint semantic sidecar path.
 
@@ -305,6 +321,8 @@ def sidecar_path_for(checkpoint_path):
     return checkpoint_path + ".semantics.json"
 
 
+# 用途：解析 sidecar 实际位置（含旧布局回退）。
+# 参数：输入 checkpoint_path；输出 存在的 sidecar 路径或 None。
 def resolve_sidecar_path(checkpoint_path):
     """Locate a semantic sidecar for a checkpoint.
 
@@ -324,6 +342,8 @@ def resolve_sidecar_path(checkpoint_path):
     return None
 
 
+# 用途：读取并反序列化语义 sidecar。
+# 参数：输入 checkpoint_path；输出 sidecar dict（缺失返回 None）。
 def load_semantic_sidecar(checkpoint_path):
     """Read the semantic sidecar JSON, or None for legacy checkpoints."""
     path = resolve_sidecar_path(checkpoint_path)
@@ -333,6 +353,8 @@ def load_semantic_sidecar(checkpoint_path):
         return json.load(file)
 
 
+# 用途：把 sidecar 中的不可变语义恢复到当前配置（resume 语义一致性的执行入口）。
+# 参数：输入 sidecar（语义 dict）、config（当前配置）；输出 无（冲突抛异常）。
 def restore_resume_semantics(
         sidecar,
         config,
@@ -373,6 +395,8 @@ def restore_resume_semantics(
         "condition_channel_names",
     )
 
+    # 用途：在配置对象中按字段名定位对应子配置容器（嵌套辅助）。
+    # 参数：输入 container（配置根）、field（字段名）；输出 持有该字段的容器（找不到抛异常）。
     def _locate(container, field):
         """Return the object that owns ``field``: the training config
         or its nested model config."""

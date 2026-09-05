@@ -19,6 +19,8 @@ from .metrics import RunningSSTMetrics, persistence_skill
 
 
 class OSTIAValidator:
+    # 用途：初始化验证器：保存配置并准备指标累计器与结果容器。
+    # 参数：输入 config（验证配置对象）；输出 无。
     def __init__(self, config):
         self.config = config
         self.device = None
@@ -30,6 +32,8 @@ class OSTIAValidator:
         self.loader = None
         self.amp_enabled = False
 
+    # 用途：构造固定可复现的验证样本索引（均匀抽样或指定子集）。
+    # 参数：无输入（读配置）；输出 样本索引数组。
     def _build_indices(self):
         dataset_size = len(self.dataset)
         if self.config.max_samples is None:
@@ -51,6 +55,8 @@ class OSTIAValidator:
             )
         ).tolist()
 
+    # 用途：核对 checkpoint 归一化统计量与数据集统计量一致（防口径漂移）。
+    # 参数：无输入；输出 无（不一致抛 ValueError）。
     def _check_normalization(self):
         if not isinstance(self.normalization, dict):
             return
@@ -74,6 +80,8 @@ class OSTIAValidator:
                 "parameters do not match"
             )
 
+    # 用途：装配验证组件：数据集、模型加载、评估协议与输出路径。
+    # 参数：无输入；输出 无（组件写入实例属性）。
     def setup(self):
         if self.config.ensemble_members < 1:
             raise ValueError(
@@ -177,6 +185,8 @@ class OSTIAValidator:
         )
         return self
 
+    # 用途：按条件消融设置破坏条件（置零/仅 anchor/逆序/打乱，均保留 day-7 anchor）。
+    # 参数：输入 condition（原始条件场）；输出 消融后的条件场。
     def _ablate_condition(self, condition):
         mode = self.config.condition_ablation
         if mode == "none":
@@ -216,6 +226,8 @@ class OSTIAValidator:
             )
         return condition
 
+    # 用途：固定 σ 去噪探针：绕过采样器直接测单点去噪能力。
+    # 参数：输入 condition（条件场）、target（真值，仅用于形状）、batch_index（批号）；输出 探针预测。
     def _predict_probe(self, condition, target, batch_index):
         """Fixed-sigma denoising probe that bypasses the sampler entirely.
 
@@ -267,6 +279,8 @@ class OSTIAValidator:
             predictions.append(denoised)
         return torch.stack(predictions, dim=0).mean(dim=0)
 
+    # 用途：按模型语义产出预测：确定性直出，或扩散按协议集成采样后取均值。
+    # 参数：输入 condition（条件场）、batch_index（批号）；输出 预测场（normalized residual 或绝对空间）。
     def _predict(self, condition, batch_index):
         if self.config.prediction_mode == "persistence":
             last_day = condition[
@@ -359,6 +373,8 @@ class OSTIAValidator:
         return prediction
 
     @staticmethod
+    # 用途：去掉末尾长度为 1 的深度轴（static 方法）。
+    # 参数：输入 value（数组）；输出 形状 [B,C,H,W] 的数组。
     def _without_depth_axis(value):
         if value.ndim != 5 or value.shape[-1] != 1:
             raise ValueError(
@@ -367,12 +383,16 @@ class OSTIAValidator:
             )
         return value[..., 0]
 
+    # 用途：把模型空间预测反标准化回开尔文并重建绝对 SST（anchor 只加一次）。
+    # 参数：输入 value（模型空间值）；输出 物理空间值。
     def _inverse_transform(self, value):
         return (
             value * self.dataset.sst_std
             + self.dataset.sst_mean
         )
 
+    # 用途：把验证指标结果写为 JSON。
+    # 参数：输入 result（结果 dict）；输出 无。
     def _save_result(self, result):
         output_dir = os.path.dirname(
             self.config.output_path
@@ -392,6 +412,8 @@ class OSTIAValidator:
             )
 
     @torch.no_grad()
+    # 用途：验证主循环：逐批预测、累计指标、（可选）条件消融与探针，最后落盘。
+    # 参数：无输入；输出 无（结果写 output_path）。
     def run(self):
         self.setup()
         overall = RunningSSTMetrics()

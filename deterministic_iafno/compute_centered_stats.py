@@ -40,6 +40,8 @@ from diafno.data.ostia import OSTIADailyDataset
 from diafno.models.config import OSTIAModelConfig
 
 
+# 用途：加载冻结确定性均值 checkpoint 并构建推理用均值模型。
+# 参数：输入 mean_checkpoint_path（checkpoint 路径）、device（设备）；输出 (模型, 配置)。
 def load_frozen_mean(mean_checkpoint_path, device):
     """Load and validate the frozen deterministic mean checkpoint.
 
@@ -130,6 +132,8 @@ def load_frozen_mean(mean_checkpoint_path, device):
     return model, immutable
 
 
+# 用途：在训练 split 上计算相对冻结均值的逐 lead innovation 均值与标准差。
+# 参数：输入 dataset/样本计划参数/冻结均值模型与设备等；输出 载荷 dict（含来源、SHA、逐 lead 统计）。
 def compute_centered_stats(
         h5_path,
         mean_checkpoint_path,
@@ -244,6 +248,8 @@ def compute_centered_stats(
     return payload, elapsed_seconds
 
 
+# 用途：命令行入口：解析参数并执行 centered 统计计算与落盘。
+# 参数：无输入（读命令行）；输出 无。
 def main():
     parser = argparse.ArgumentParser(
         description=(

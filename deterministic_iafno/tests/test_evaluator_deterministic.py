@@ -8,9 +8,13 @@ from diafno.evaluation.validator import OSTIAValidator
 
 
 class StubDeterministicModel:
+    # 用途：测试桩的初始化。
+    # 参数：见签名；输出 无。
     def __init__(self):
         self.calls = 0
 
+    # 用途：执行一次预测的测试辅助。
+    # 参数：见签名；输出 预测结果。
     def predict(self, condition):
         self.calls += 1
         return torch.zeros(
@@ -23,6 +27,8 @@ class StubDeterministicModel:
 
 
 class EvaluatorDeterministicTests(unittest.TestCase):
+    # 用途：构造测试用验证器实例的辅助函数。
+    # 参数：见签名；输出 OSTIAValidator 实例。
     def validator(self, ensemble_members=1):
         validator = OSTIAValidator.__new__(OSTIAValidator)
         validator.config = SimpleNamespace(
@@ -39,6 +45,8 @@ class EvaluatorDeterministicTests(unittest.TestCase):
         validator.model = StubDeterministicModel()
         return validator
 
+    # 用途：构造测试用条件张量的辅助函数。
+    # 参数：见签名；输出 条件张量。
     def condition(self):
         condition = torch.zeros(2, 8, 1, 1, 1)
         condition[0, 6, 0, 0, 0] = 3.0
@@ -46,6 +54,8 @@ class EvaluatorDeterministicTests(unittest.TestCase):
         condition[:, 7, 0, 0, 0] = 1.0
         return condition
 
+    # 用途：验证确定性预测重建 anchor 恰好一次。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_deterministic_prediction_reanchors_anchor(self):
         validator = self.validator()
         prediction = validator._predict(self.condition(), 0)
@@ -63,6 +73,8 @@ class EvaluatorDeterministicTests(unittest.TestCase):
             torch.full((2,), 9.0),
         ))
 
+    # 用途：验证确定性路径强制 ensemble=1。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_deterministic_requires_single_member(self):
         validator = self.validator(ensemble_members=4)
         with self.assertRaisesRegex(
@@ -71,6 +83,8 @@ class EvaluatorDeterministicTests(unittest.TestCase):
             ):
             validator._predict(self.condition(), 0)
 
+    # 用途：验证条件消融在确定性预测路径之前生效。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_ablation_applied_before_deterministic_predict(self):
         validator = self.validator()
         validator.config.condition_ablation = "zero_sst"

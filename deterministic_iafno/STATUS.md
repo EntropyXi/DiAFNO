@@ -61,6 +61,30 @@
   by the CLI.  A value equal to the factory default is therefore no
   longer mistaken for an omitted argument.
 
+## Diffusion sampling-step check (server, Aug 31, gate pre-evidence)
+
+Same frozen protocol (200 val samples, seed 123, absolute-space RMSE),
+diffusion `ostia_7day_to15day_residual_scratch/best_model.pth`, only the
+sampler step count changed:
+
+| model / config | overall RMSE | day1 RMSE |
+|---|---|---|
+| diffusion, 16 steps (s_churn=0, ens=4) | 1.3702 | 0.6769 |
+| diffusion, 100 steps (s_churn=0, ens=4) | 1.3640 | 0.6660 |
+| det_raw epoch 15 (deterministic) | **1.1766** | **0.2471** |
+| persistence baseline | 1.1871 | 0.2484 |
+
+Evidence: `experiments/deterministic_iafno/val_diffusion_best_100step_200.json`
+(on the training server).
+
+Conclusion: 16 → 100 steps improves the diffusion arm by only -0.45%
+(1.3702 → 1.3640).  Undersampling is **not** the cause of the diffusion
+arm's deficit; the model itself does not learn an adequate mean
+prediction.  This strengthens the case for the frozen-mean centered
+diffusion (Phase 2): the diffusion distribution is stable across step
+counts, only its center is wrong — the deterministic arm provides the
+center, diffusion models the perturbation.
+
 ## Not yet done (server, real data)
 
 - Real HDF5 lead stats (`deterministic_iafno/compute_lead_stats.py`).

@@ -18,10 +18,14 @@ from deterministic_iafno.checkpoint_semantics import (
 
 
 class TinyNet(nn.Module):
+    # 用途：测试桩的初始化。
+    # 参数：见签名；输出 无。
     def __init__(self):
         super().__init__()
         self.linear = nn.Linear(4, 2)
 
+    # 用途：执行一次前向的测试辅助。
+    # 参数：见签名；输出 模型输出。
     def forward(self, x):
         return self.linear(x)
 
@@ -37,6 +41,8 @@ class CheckpointRoundTripTests(unittest.TestCase):
     """Save/load round trip through CheckpointManager with the semantic
     manifest and the per-checkpoint sidecar file."""
 
+    # 用途：每个测试前的夹具准备。
+    # 参数：无输入；输出 无。
     def setUp(self):
         tests_dir = os.path.dirname(os.path.abspath(__file__))
         self.tmp_dir = os.path.join(tests_dir, ".tmp_ckpt")
@@ -48,9 +54,13 @@ class CheckpointRoundTripTests(unittest.TestCase):
         self.config = OSTIATrainingConfig()
         self.config.output_dir = self.tmp_dir
 
+    # 用途：每个测试后的夹具清理。
+    # 参数：无输入；输出 无。
     def tearDown(self):
         shutil.rmtree(self.tmp_dir, ignore_errors=True)
 
+    # 用途：验证保存-加载往返。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_save_load_round_trip(self):
         manager = CheckpointManager(self.config)
 
@@ -131,6 +141,8 @@ class CheckpointRoundTripTests(unittest.TestCase):
             optimizer.param_groups[0]["lr"],
         )
 
+    # 用途：验证 sidecar 的续训恢复往返。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_sidecar_resume_restore_round_trip(self):
         # A deterministic lead-standardized run: bare resume must
         # restore its model_type/target_scaling/lead stats from the
@@ -188,6 +200,8 @@ class CheckpointRoundTripTests(unittest.TestCase):
         )
         self.assertEqual(len(resume_config.model.lead_mean), 15)
 
+    # 用途：验证审核过的优化器/调度覆盖被应用。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_reviewed_optimizer_and_schedule_override_is_applied(self):
         manager = CheckpointManager(self.config)
         model = TinyNet()

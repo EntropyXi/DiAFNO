@@ -58,6 +58,8 @@ MEAN_ARCH_FIELDS = (
 )
 
 
+# 用途：计算文件内容的 SHA256 十六进制摘要（用于冻结均值身份校验）。
+# 参数：输入 path（文件路径）；输出 64 位十六进制字符串。
 def sha256_hex_file(path):
     digest = hashlib.sha256()
     with open(path, "rb") as file:
@@ -66,6 +68,8 @@ def sha256_hex_file(path):
     return digest.hexdigest()
 
 
+# 用途：把对象序列化为排序键、紧凑分隔的规范 JSON 字节。
+# 参数：输入 value（可 JSON 化对象）；输出 规范化 UTF-8 字节。
 def canonical_json_bytes(value):
     """Deterministic JSON serialization used for every semantics hash."""
     return json.dumps(
@@ -76,16 +80,22 @@ def canonical_json_bytes(value):
     ).encode("utf-8")
 
 
+# 用途：计算对象规范 JSON 的 SHA256 摘要。
+# 参数：输入 value（可 JSON 化对象）；输出 十六进制摘要。
 def sha256_of_normalized(value):
     return hashlib.sha256(canonical_json_bytes(value)).hexdigest()
 
 
+# 用途：计算样本索引数组的 SHA256 摘要（绑定抽样计划）。
+# 参数：输入 indices（int 数组/列表）；输出 十六进制摘要。
 def indices_sha256(indices):
     import numpy as np
     array = np.asarray(indices, dtype=np.int64)
     return hashlib.sha256(array.tobytes()).hexdigest()
 
 
+# 用途：校验统计量数组长度、有限性且 std 为正。
+# 参数：输入 values（[mean,std] 数组对）、name（名称，用于报错）、expected_length（期望长度）；输出 规范化后的 float 列表（违规抛 ValueError）。
 def _finite_positive_stats(values, name, expected_length):
     if not isinstance(values, (list, tuple)):
         raise ValueError(f"{name} must be an array of floats")
@@ -100,6 +110,8 @@ def _finite_positive_stats(values, name, expected_length):
     return converted
 
 
+# 用途：读取冻结均值 checkpoint 的语义 sidecar JSON。
+# 参数：输入 mean_checkpoint_path（checkpoint 路径）；输出 sidecar dict（缺失或损坏抛异常）。
 def _load_sidecar(mean_checkpoint_path):
     from deterministic_iafno.checkpoint_semantics import (
         load_semantic_sidecar,
@@ -114,6 +126,8 @@ def _load_sidecar(mean_checkpoint_path):
     return sidecar
 
 
+# 用途：校验冻结均值 sidecar 的语义字段与锁定期望完全一致。
+# 参数：输入 mean_checkpoint_path（checkpoint 路径）；输出 无（不一致抛 ValueError）。
 def mean_sidecar_immutable(mean_checkpoint_path):
     sidecar = _load_sidecar(mean_checkpoint_path)
     manifest = sidecar.get("semantic_manifest")
@@ -129,6 +143,8 @@ def mean_sidecar_immutable(mean_checkpoint_path):
     return immutable
 
 
+# 用途：交叉核对 centered 统计载荷与冻结均值 sidecar 的身份（模型语义、架构、SHA）。
+# 参数：输入 stats（centered 统计载荷）、mean_checkpoint_path（冻结均值路径）；输出 无（不一致抛 ValueError）。
 def cross_check_mean_sidecar(stats, mean_checkpoint_path):
     """Cross-check the frozen-mean sidecar against a centered stats JSON.
 
@@ -169,6 +185,8 @@ def cross_check_mean_sidecar(stats, mean_checkpoint_path):
     return immutable
 
 
+# 用途：把 numpy 标量/数组递归转为纯 python 类型以便 JSON 化。
+# 参数：输入 value（任意对象）；输出 JSON 可序列化对象。
 def _plain(value):
     if isinstance(value, tuple):
         return [_plain(item) for item in value]
@@ -177,6 +195,8 @@ def _plain(value):
     return value
 
 
+# 用途：centered innovation 统计载荷的权威校验：来源、划分、维度、统计量与冻结均值身份。
+# 参数：输入 payload（统计 JSON）、mean_checkpoint_path（冻结均值路径）及期望的目标语义字段；输出 规范化载荷（违规抛 ValueError）。
 def validate_centered_stats_payload(
         stats,
         target_chans=15,
@@ -335,6 +355,8 @@ def validate_centered_stats_payload(
     }
 
 
+# 用途：全新 centered 训练启动前的输入校验（统计文件、冻结均值与配置三方一致性）。
+# 参数：输入 统计路径/冻结均值路径/期望语义与架构字段；输出 无（违规抛异常）。
 def validate_centered_fresh_inputs(
         mean_checkpoint_path,
         centered_stats_path,

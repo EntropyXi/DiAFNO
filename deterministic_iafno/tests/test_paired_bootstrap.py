@@ -9,6 +9,8 @@ from diafno.evaluation.bootstrap import (
 
 
 class PairedTemporalBlockBootstrapTests(unittest.TestCase):
+    # 用途：验证相同预测的差为 0 且 skill 为 0。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_identical_predictions_have_zero_difference_and_skill(self):
         sse = np.array(
             [[1.0, 4.0], [2.0, 8.0], [3.0, 12.0], [4.0, 16.0]]
@@ -28,6 +30,8 @@ class PairedTemporalBlockBootstrapTests(unittest.TestCase):
         self.assertAlmostEqual(result["overall"]["mse_skill"], 0.0)
         self.assertEqual(result["overall"]["rmse_difference_ci"], [0.0, 0.0])
 
+    # 用途：验证一致更优模型的 CI 严格为负。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_uniformly_better_model_has_strictly_better_interval(self):
         persistence_sse = np.array(
             [[4.0, 9.0], [8.0, 18.0], [12.0, 27.0], [16.0, 36.0]]
@@ -51,6 +55,8 @@ class PairedTemporalBlockBootstrapTests(unittest.TestCase):
             1.0,
         )
 
+    # 用途：验证 bootstrap 配对把同一时间块的样本聚合。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_pairing_aggregates_all_samples_from_same_time_block(self):
         model_sse = np.ones((5, 1))
         persistence_sse = np.full((5, 1), 2.0)
@@ -67,6 +73,8 @@ class PairedTemporalBlockBootstrapTests(unittest.TestCase):
         self.assertEqual(result["samples_per_block_min"], 1)
         self.assertEqual(result["samples_per_block_max"], 3)
 
+    # 用途：验证形状不一致被拒绝。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_rejects_shape_mismatch(self):
         with self.assertRaisesRegex(ValueError, "shapes must match"):
             paired_temporal_block_bootstrap(

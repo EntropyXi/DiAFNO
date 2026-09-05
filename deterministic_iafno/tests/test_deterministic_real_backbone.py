@@ -15,6 +15,8 @@ class DeterministicRealBackboneTests(unittest.TestCase):
     EDM preconditioning, and correct lead-standardized inversion.
     """
 
+    # 用途：构建测试用对象的辅助函数。
+    # 参数：见签名；输出 测试用对象。
     def _build(self, target_scaling="raw", lead_mean=None, lead_std=None):
         net = IAFNODiff(
             dim=(8, 8, 1),
@@ -39,6 +41,8 @@ class DeterministicRealBackboneTests(unittest.TestCase):
             lead_std=lead_std,
         )
 
+    # 用途：验证 raw 语义的前向反向。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_raw_forward_backward(self):
         model = self._build()
         condition = torch.randn(2, 2, 8, 8, 1)
@@ -58,6 +62,8 @@ class DeterministicRealBackboneTests(unittest.TestCase):
                 for gradient in gradients)
         )
 
+    # 用途：验证 lead 标准化的正反往返。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_lead_standardized_roundtrip(self):
         model = self._build(
             target_scaling="lead_standardized",
@@ -78,6 +84,8 @@ class DeterministicRealBackboneTests(unittest.TestCase):
         ).view(1, 3, 1, 1, 1)
         self.assertTrue(torch.allclose(prediction, expected))
 
+    # 用途：验证标准化-反变换的恒等性。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_transform_inverse_identity(self):
         model = self._build(
             target_scaling="lead_standardized",
@@ -89,6 +97,8 @@ class DeterministicRealBackboneTests(unittest.TestCase):
         restored = model.inverse_target(transformed)
         self.assertTrue(torch.allclose(target, restored))
 
+    # 用途：验证 mask 形状不一致时失败。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_mask_shape_mismatch_fails(self):
         model = self._build()
         condition = torch.randn(1, 2, 8, 8, 1)

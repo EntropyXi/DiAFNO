@@ -10,12 +10,16 @@ from diafno.models.diffusion import ElucidatedDiffusion
 class ZeroNet(nn.Module):
     """Dummy network whose output is zero: D = c_skip * y."""
 
+    # 用途：测试桩的初始化。
+    # 参数：见签名；输出 无。
     def __init__(self):
         super().__init__()
         # ElucidatedDiffusion.device derives from the net's parameters,
         # so the dummy net needs at least one parameter.
         self.dummy = nn.Parameter(torch.tensor(0.0))
 
+    # 用途：执行一次前向的测试辅助。
+    # 参数：见签名；输出 模型输出。
     def forward(self, x, time, condition):
         return torch.zeros_like(x)
 
@@ -30,6 +34,8 @@ class LegacyMaskedLossSemanticsTests(unittest.TestCase):
     cannot silently change legacy diffusion training behavior.
     """
 
+    # 用途：构建测试用最小模型的辅助函数。
+    # 参数：见签名；输出 模型实例。
     def _model(self):
         net = ZeroNet()
         return ElucidatedDiffusion(
@@ -45,6 +51,8 @@ class LegacyMaskedLossSemanticsTests(unittest.TestCase):
             P_mean=-3.0,
         )
 
+    # 用途：验证 mask 损失与参考公式一致。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_masked_loss_matches_reference_formula(self):
         model = self._model()
         target = torch.randn(2, 2, 4, 4, 1)
@@ -78,6 +86,8 @@ class LegacyMaskedLossSemanticsTests(unittest.TestCase):
 
         self.assertTrue(torch.allclose(loss, reference, atol=1e-6))
 
+    # 用途：验证无 mask 时损失仍为逐样本均值。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_unmasked_loss_still_per_sample_mean(self):
         model = self._model()
         target = torch.randn(3, 2, 4, 4, 1)

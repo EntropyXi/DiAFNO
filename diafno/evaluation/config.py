@@ -34,6 +34,8 @@ class OSTIAValidationConfig:
     bootstrap_seed: int = 123
 
     @classmethod
+    # 用途：从 CLI args 构造验证配置（checkpoint、样本数、seed、探针 σ 等语义）。
+    # 参数：输入 args（解析后的 CLI args）；输出 OSTIAValidationConfig 实例（类方法）。
     def from_args(cls, args):
         prediction_mode = (
             "probe"
@@ -72,6 +74,8 @@ class OSTIAValidationConfig:
         )
 
 
+# 用途：构建验证入口的完整 argparse 参数集。
+# 参数：无输入；输出 ArgumentParser。
 def build_validation_parser():
     parser = argparse.ArgumentParser(
         description="Validate DiAFNO on the OSTIA validation split"

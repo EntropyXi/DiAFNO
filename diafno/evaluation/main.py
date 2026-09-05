@@ -5,6 +5,8 @@ import json
 from .evaluator import OSTIAEvaluator
 
 
+# 用途：构建离线评估入口的 argparse 参数集。
+# 参数：无输入；输出 ArgumentParser。
 def build_parser():
     parser = argparse.ArgumentParser(
         description="Evaluate OSTIA SST predictions"
@@ -20,6 +22,8 @@ def build_parser():
     return parser
 
 
+# 用途：离线评估入口：解析参数并驱动 OSTIAEvaluator。
+# 参数：无输入（读命令行）；输出 无。
 def main():
     args = build_parser().parse_args()
     evaluator = OSTIAEvaluator(

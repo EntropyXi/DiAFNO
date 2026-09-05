@@ -28,6 +28,8 @@ class OSTIAInferenceConfig:
     use_amp: bool = True
 
     @classmethod
+    # 用途：从 CLI args 构造推理配置（checkpoint、输出目录、集成成员数等）。
+    # 参数：输入 args（解析后的 CLI args）；输出 OSTIAInferenceConfig 实例（类方法）。
     def from_args(cls, args):
         return cls(
             checkpoint=args.checkpoint,
@@ -49,6 +51,8 @@ class OSTIAInferenceConfig:
         )
 
 
+# 用途：构建推理入口的完整 argparse 参数集。
+# 参数：无输入；输出 ArgumentParser。
 def build_parser():
     parser = argparse.ArgumentParser(
         description="DiAFNO OSTIA inference"

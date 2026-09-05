@@ -15,20 +15,30 @@ from deterministic_iafno.checkpoint_semantics import (
 
 
 class FakeSampler:
+    # 用途：测试桩的初始化。
+    # 参数：见签名；输出 无。
     def __init__(self):
         self.epochs = []
 
+    # 用途：设置采样器 epoch 的透传测试。
+    # 参数：输入 epoch；输出 无。
     def set_epoch(self, epoch):
         self.epochs.append(epoch)
 
 
 class FakeLoader:
+    # 用途：测试桩的初始化。
+    # 参数：见签名；输出 无。
     def __init__(self, batches):
         self.batches = batches
 
+    # 用途：测试桩的迭代接口。
+    # 参数：无输入；输出 迭代器。
     def __iter__(self):
         return iter(self.batches)
 
+    # 用途：测试桩的长度接口。
+    # 参数：无输入；输出 int。
     def __len__(self):
         return len(self.batches)
 
@@ -40,6 +50,8 @@ class DatasetStub:
     }
 
 
+# 用途：构造测试用 centered 训练配置的辅助函数。
+# 参数：见签名（可覆盖字段）；输出 训练配置对象。
 def centered_train_config(output_dir):
     config = OSTIATrainingConfig()
     config.output_dir = output_dir
@@ -79,14 +91,20 @@ class CenteredCpuSmokeTests(unittest.TestCase):
     """Trainer-level tiny CPU smoke: real training loop, real AMP
     guard, real checkpoint save with schema-4 semantics."""
 
+    # 用途：每个测试前的夹具准备。
+    # 参数：无输入；输出 无。
     def setUp(self):
         tests_dir = os.path.dirname(os.path.abspath(__file__))
         self.tmp_dir = os.path.join(tests_dir, ".tmp_centered_smoke")
         os.makedirs(self.tmp_dir, exist_ok=True)
 
+    # 用途：每个测试后的夹具清理。
+    # 参数：无输入；输出 无。
     def tearDown(self):
         shutil.rmtree(self.tmp_dir, ignore_errors=True)
 
+    # 用途：构建测试用训练器实例的辅助函数。
+    # 参数：见签名；输出 OSTIATrainer 实例。
     def _build_trainer(self, config, batches):
         trainer = OSTIATrainer.__new__(OSTIATrainer)
         trainer.config = config
@@ -113,6 +131,8 @@ class CenteredCpuSmokeTests(unittest.TestCase):
         return trainer
 
     @staticmethod
+    # 用途：构造测试用批次序列的辅助函数。
+    # 参数：见签名；输出 批次列表。
     def batches(count=4, batch=2):
         torch.manual_seed(7)
         return [
@@ -124,6 +144,8 @@ class CenteredCpuSmokeTests(unittest.TestCase):
             for _ in range(count)
         ]
 
+    # 用途：验证单 epoch 训练冒烟。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_train_epoch_smoke(self):
         config = centered_train_config(self.tmp_dir)
         trainer = self._build_trainer(config, self.batches())
@@ -150,6 +172,8 @@ class CenteredCpuSmokeTests(unittest.TestCase):
         self.assertFalse(model.mean_model.training)
         self.assertEqual(trainer.data.sampler.epochs, [0])
 
+    # 用途：验证 epoch checkpoint 与 sidecar 的成对落盘。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_epoch_checkpoint_and_sidecar(self):
         config = centered_train_config(self.tmp_dir)
         trainer = self._build_trainer(config, self.batches())

@@ -6,6 +6,8 @@ from .config import (
 from .inferencer import OSTIAInferencer
 
 
+# 用途：推理入口：解析参数、构造配置并驱动 OSTIAInferencer。
+# 参数：无输入（读命令行）；输出 无。
 def main():
     args = build_parser().parse_args()
     config = OSTIAInferenceConfig.from_args(args)

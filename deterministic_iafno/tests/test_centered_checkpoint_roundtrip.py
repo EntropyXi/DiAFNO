@@ -33,6 +33,8 @@ class DatasetStub:
     }
 
 
+# 用途：构造测试用 centered 模型配置的辅助函数。
+# 参数：见签名（可覆盖字段）；输出 OSTIAModelConfig 实例。
 def centered_config():
     config = OSTIATrainingConfig()
     config.output_dir = None
@@ -59,6 +61,8 @@ def centered_config():
 
 
 class CenteredCheckpointRoundTripTests(unittest.TestCase):
+    # 用途：每个测试前的夹具准备。
+    # 参数：无输入；输出 无。
     def setUp(self):
         tests_dir = os.path.dirname(os.path.abspath(__file__))
         self.tmp_dir = os.path.join(tests_dir, ".tmp_centered_ckpt")
@@ -69,9 +73,13 @@ class CenteredCheckpointRoundTripTests(unittest.TestCase):
         self.config = centered_config()
         self.config.output_dir = self.tmp_dir
 
+    # 用途：每个测试后的夹具清理。
+    # 参数：无输入；输出 无。
     def tearDown(self):
         shutil.rmtree(self.tmp_dir, ignore_errors=True)
 
+    # 用途：测试内保存 checkpoint 的辅助函数。
+    # 参数：见签名；输出 无。
     def _save(self, config=None):
         config = self.config if config is None else config
         manager = CheckpointManager(config)
@@ -105,6 +113,8 @@ class CenteredCheckpointRoundTripTests(unittest.TestCase):
         )
         return model
 
+    # 用途：验证 schema4 sidecar 携带 centered 语义。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_schema4_sidecar_carries_centered_semantics(self):
         self._save()
         sidecar = load_semantic_sidecar(self.checkpoint_path)
@@ -142,6 +152,8 @@ class CenteredCheckpointRoundTripTests(unittest.TestCase):
             immutable["mean_semantics_sha256"], "cd" * 32
         )
 
+    # 用途：验证 checkpoint 保存均值权重与 AMP 跳步计数。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_checkpoint_contains_mean_weights_and_skip_counters(self):
         self._save()
         checkpoint = torch.load(
@@ -157,6 +169,8 @@ class CenteredCheckpointRoundTripTests(unittest.TestCase):
             checkpoint["skipped_optimizer_step_numbers"], [3, 6]
         )
 
+    # 用途：验证推理侧无需均值路径即可重建模型。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_inference_rebuilds_without_mean_path(self):
         # The centered checkpoint is self-contained: no external mean
         # file exists anywhere in this test, yet the loader must
@@ -185,6 +199,8 @@ class CenteredCheckpointRoundTripTests(unittest.TestCase):
         self.assertEqual(tuple(forecast.shape), (1, 2, 8, 8, 1))
         self.assertTrue(torch.isfinite(forecast).all())
 
+    # 用途：验证裸 resume 能从 sidecar 恢复 centered 语义。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_bare_resume_restores_centered_semantics(self):
         self._save()
         sidecar = load_semantic_sidecar(self.checkpoint_path)
@@ -216,6 +232,8 @@ class CenteredCheckpointRoundTripTests(unittest.TestCase):
             for notice in notices
         ))
 
+    # 用途：验证 centered 显式语义冲突时 fail-closed。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_explicit_centered_conflict_fails_closed(self):
         self._save()
         sidecar = load_semantic_sidecar(self.checkpoint_path)
@@ -234,6 +252,8 @@ class CenteredCheckpointRoundTripTests(unittest.TestCase):
                 explicit_fields={"mean_checkpoint_sha256"},
             )
 
+    # 用途：验证 schema3 旧清单仍可通过校验。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_schema3_legacy_manifest_still_validates(self):
         # A schema-3 saved manifest must stay readable: fields the old
         # checkpoint lacks are not compared against the new config.
@@ -260,6 +280,8 @@ class CenteredCheckpointRoundTripTests(unittest.TestCase):
         )
         self.assertEqual(warnings, [])
 
+    # 用途：验证往返加载恢复权重与跳步计数。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_roundtrip_load_restores_weights_and_skip_counters(self):
         original = self._save()
         manager = CheckpointManager(self.config)

@@ -28,6 +28,8 @@ from deterministic_iafno.checkpoint_semantics import (
 
 
 class OSTIATrainer:
+    # 用途：初始化训练器：登记训练配置与派生属性，其余组件延后到 setup() 装配。
+    # 参数：输入 config（训练配置对象）；输出 无（写入实例属性）。
     def __init__(self, config):
         self.config = config
         self.runtime = DistributedRuntime()
@@ -48,6 +50,8 @@ class OSTIATrainer:
         )
         self.checkpoints = CheckpointManager(config)
 
+    # 用途：装配运行时：DDP 环境、数据集/采样器/加载器、模型包装与 checkpoint 管理器。
+    # 参数：无输入；输出 无（组件写入实例属性）。
     def setup(self):
         if (
                 self.config.resume_path is not None
@@ -83,6 +87,8 @@ class OSTIATrainer:
         self._resume_training()
         self._reassert_frozen_mean()
 
+    # 用途：构建模型（按语义类型）、DDP 包装、优化器、余弦调度器与 GradScaler。
+    # 参数：无输入（读实例配置）；输出 无（组件写入实例属性）。
     def _build_training_components(self):
         self.model = self.config.model.build_model(
             self.runtime.device
@@ -142,6 +148,8 @@ class OSTIATrainer:
         )
         self.optimizer.zero_grad(set_to_none=True)
 
+    # 用途：init-from：仅从另一 checkpoint 载入模型权重（如迁移旧 absolute 权重），不载训练状态。
+    # 参数：无输入（读实例配置中的 init 路径）；输出 无。
     def _init_from_checkpoint(self):
         """Load model weights only from another checkpoint (e.g. an
         absolute-mode checkpoint reused for residual fine-tuning).
@@ -216,6 +224,8 @@ class OSTIATrainer:
             )
         self.runtime.barrier()
 
+    # 用途：解析续训入口：显式指定路径优先，否则回退输出目录的 latest.pth。
+    # 参数：无输入；输出 checkpoint 路径或 None（不续训）。
     def _resolve_resume_path(self):
         resume_path = self.config.resume_path
         if resume_path is None:
@@ -227,6 +237,8 @@ class OSTIATrainer:
             )
         return os.path.abspath(resume_path)
 
+    # 用途：续训前从 checkpoint sidecar 恢复不可变的模型/数据/噪声语义（fail-closed）。
+    # 参数：无输入；输出 无（语义冲突或 sidecar 缺失时抛异常）。
     def _restore_resume_semantics(self):
         """Restore immutable model/data/training-noise semantics from
         the checkpoint semantic sidecar before building the model.
@@ -263,6 +275,8 @@ class OSTIATrainer:
             for notice in notices:
                 print(f"Resume notice: {notice}")
 
+    # 用途：全新 centered 训练的逐 rank fail-closed 校验（冻结均值身份、innovation 统计量与语义链完整）。
+    # 参数：无输入；输出 无（校验失败抛异常）。
     def _validate_centered_fresh_inputs(self):
         """Per-rank fail-closed validation of a fresh centered run.
 
@@ -313,6 +327,8 @@ class OSTIATrainer:
                 validated["lead_std"][:3],
             )
 
+    # 用途：把冻结的确定性均值权重载入 centered 包装器的 mean_model 子模块。
+    # 参数：无输入（读配置中的冻结均值路径）；输出 无。
     def _load_frozen_mean_weights(self):
         """Load the frozen deterministic mean weights into the wrapper.
 
@@ -333,6 +349,8 @@ class OSTIATrainer:
         if self.runtime.is_main_process:
             print("Loaded frozen mean weights from", mean_path)
 
+    # 用途：任何 state_dict 载入之后再次强制冻结 mean_model（双保险防解冻）。
+    # 参数：无输入；输出 无。
     def _reassert_frozen_mean(self):
         """Belt-and-braces freeze after any state-dict load."""
         if self.config.model.model_type != "centered_diffusion":
@@ -341,6 +359,8 @@ class OSTIATrainer:
         model.mean_model.requires_grad_(False)
         model.mean_model.eval()
 
+    # 用途：检测优化器管理的参数梯度中是否存在非有限值。
+    # 参数：无输入（读当前梯度）；输出 True 表示存在 NaN/Inf 溢出。
     def _detect_grad_overflow(self):
         """Return True when any optimizer-managed gradient is non-finite.
 
@@ -355,6 +375,8 @@ class OSTIATrainer:
                     return True
         return False
 
+    # 用途：断言 mean_model 的参数均无梯度（确认冻结未被破坏）。
+    # 参数：无输入；输出 无（发现梯度即抛 AssertionError）。
     def _assert_mean_frozen_grads(self):
         model = self.checkpoints.unwrap_model(self.model)
         mean = getattr(model, "mean_model", None)
@@ -370,6 +392,8 @@ class OSTIATrainer:
                 "optimizer step"
             )
 
+    # 用途：从 checkpoint 恢复完整训练状态：模型、优化器、调度器、scaler、epoch/global_step 与随机态。
+    # 参数：无输入（读解析好的 resume 路径）；输出 无。
     def _resume_training(self):
         resume_path = self._resolve_resume_path()
         if resume_path is None:
@@ -411,6 +435,8 @@ class OSTIATrainer:
             )
 
     @staticmethod
+    # 用途：把 dataloader 产出的样本 dict（或 dict 列表）拆分为张量三元组。
+    # 参数：输入 batch（样本 dict 或其列表）；输出 (condition, target, target_mask)。
     def unpack_batch(batch):
         if isinstance(batch, dict):
             return (
@@ -420,6 +446,8 @@ class OSTIATrainer:
             )
         return batch[0], batch[1], batch[2]
 
+    # 用途：校验批张量的维度、通道数与 mask 形状语义。
+    # 参数：输入 condition/target/target_mask（批张量）；输出 无（不合法抛 ValueError）。
     def check_batch(
             self,
             condition,
@@ -471,6 +499,8 @@ class OSTIATrainer:
         if not torch.isfinite(target_mask).all():
             raise ValueError("target_mask contains NaN or Inf")
 
+    # 用途：把批张量移动到当前进程设备。
+    # 参数：输入 batch 三元组；输出 设备上的 (condition, target, target_mask)。
     def _move_batch(self, batch):
         condition, target, target_mask = (
             self.unpack_batch(batch)
@@ -486,6 +516,8 @@ class OSTIATrainer:
             target_mask.to(**move_options)
         )
 
+    # 用途：按训练语义把原始目标转换为损失目标（如 residual 模式取相对 anchor 的残差）。
+    # 参数：输入 condition（条件场）、target（原始目标）；输出 转换后的训练目标。
     def _training_target(self, condition, target):
         if self.config.model.target_mode == "absolute":
             return target
@@ -496,6 +528,8 @@ class OSTIATrainer:
         ]
         return target - last_day
 
+    # 用途：执行一个 epoch：取批、前向、梯度累积、周期性优化器更新并累计损失。
+    # 参数：输入 epoch（当前 epoch 序号）；输出 该 epoch 的本地损失总和。
     def _train_epoch(self, epoch):
         self.model.train()
         self.data.sampler.set_epoch(epoch)
@@ -574,6 +608,8 @@ class OSTIATrainer:
                 )
         return epoch_loss, epoch_batches
 
+    # 用途：执行一次同步的优化器更新：裁剪梯度、scaler.step、调度器步进与 AMP 溢出守护。
+    # 参数：无输入；输出 无（溢出时跳过本步并计数）。
     def _optimizer_update(self):
         """One synchronized optimizer update with AMP overflow guard.
 
@@ -619,6 +655,8 @@ class OSTIATrainer:
                 grad_norm.detach().item()
             )
 
+    # 用途：跨 rank 归约并平均 epoch 训练损失。
+    # 参数：输入 epoch_loss（本地损失和）、epoch_batches（本地批数）；输出 全局平均损失（标量 float）。
     def _mean_train_loss(
             self,
             epoch_loss,
@@ -639,6 +677,8 @@ class OSTIATrainer:
             / statistics[1].clamp_min(1)
         ).item()
 
+    # 用途：epoch 收尾：落盘 checkpoint、记录损失/梯度曲线并推进训练历史。
+    # 参数：输入 epoch（epoch 号）、mean_train_loss（全局平均损失）；输出 无。
     def _finish_epoch(self, epoch, mean_train_loss):
         random_state = (
             self.checkpoints.capture_random_state()
@@ -729,6 +769,8 @@ class OSTIATrainer:
             self.history.save()
         self.runtime.barrier()
 
+    # 用途：训练主入口：处理 resume/init 起点，循环执行各 epoch 并在结束后完成最终收尾。
+    # 参数：无输入；输出 无。
     def train(self):
         try:
             self.setup()

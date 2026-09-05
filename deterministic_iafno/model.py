@@ -14,6 +14,8 @@ class DeterministicIAFNO(nn.Module):
     time value is a raw-network embedding input; it is not sigma=0.
     """
 
+    # 用途：初始化确定性回归适配器：登记目标语义与 lead 标准化统计量，旁路一切 EDM 预条件。
+    # 参数：输入 net（IAFNODiff 主干）、target_chans（目标通道 15）、target_scaling（raw 或 lead_standardized）、lead_mean/lead_std（逐 lead 残差统计量）、fixed_time_value（固定时间嵌入值）；输出 无（构造模块状态）。
     def __init__(
             self,
             net,
@@ -75,6 +77,8 @@ class DeterministicIAFNO(nn.Module):
             persistent=False,
         )
 
+    # 用途：以全零目标与固定时间值跑主干，得到未经反标准化的网络预测。
+    # 参数：输入 condition（条件场 [B,C,H,W,Z]）；输出 预测 [B,target_chans,H,W,Z]（标准化空间）。
     def _network_prediction(self, condition):
         batch, _, height, width, depth = condition.shape
         zeros = torch.zeros(
@@ -96,17 +100,25 @@ class DeterministicIAFNO(nn.Module):
         )
         return self.net(zeros, fixed_time, condition)
 
+    # 用途：按 lead 统计量标准化目标（raw 模式下为恒等）。
+    # 参数：输入 target（残差目标场）；输出 (target-lead_mean)/lead_std。
     def transform_target(self, target):
         return (target - self.lead_mean) / self.lead_std
 
+    # 用途：按 lead 统计量反标准化（raw 模式下为恒等）。
+    # 参数：输入 target（标准化空间值）；输出 target*lead_std+lead_mean。
     def inverse_target(self, target):
         return target * self.lead_std + self.lead_mean
 
+    # 用途：推理接口：网络前向后反标准化为 normalized residual 预测。
+    # 参数：输入 condition（条件场）；输出 预测的残差场（normalized residual 空间）。
     def predict(self, condition):
         return self.inverse_target(
             self._network_prediction(condition)
         )
 
+    # 用途：训练前向：预测与标准化目标的逐元素平方误差，按 mask 做全局归一化均值。
+    # 参数：输入 target（残差目标）、condition（条件场）、target_mask（有效像素 mask，可选）；输出 标量损失。
     def forward(self, target, condition, target_mask=None):
         prediction = self._network_prediction(condition)
         transformed_target = self.transform_target(target)

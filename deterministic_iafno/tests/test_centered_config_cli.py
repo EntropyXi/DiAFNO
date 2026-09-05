@@ -13,6 +13,8 @@ from deterministic_iafno.centered_stats import (
 )
 
 
+# 用途：构造合法 centered 统计载荷的夹具。
+# 参数：见签名（可覆盖字段）；输出 载荷 dict。
 def valid_centered_payload():
     return {
         "schema_version": 1,
@@ -40,6 +42,8 @@ def valid_centered_payload():
 
 
 class CenteredConfigCliTests(unittest.TestCase):
+    # 用途：每个测试前的夹具准备。
+    # 参数：无输入；输出 无。
     def setUp(self):
         tests_dir = os.path.dirname(os.path.abspath(__file__))
         self.stats_path = os.path.join(
@@ -48,13 +52,19 @@ class CenteredConfigCliTests(unittest.TestCase):
         with open(self.stats_path, "w", encoding="utf-8") as file:
             json.dump(valid_centered_payload(), file)
 
+    # 用途：每个测试后的夹具清理。
+    # 参数：无输入；输出 无。
     def tearDown(self):
         if os.path.isfile(self.stats_path):
             os.remove(self.stats_path)
 
+    # 用途：解析 CLI 参数的测试辅助函数。
+    # 参数：输入 argv 列表；输出 解析后的 args。
     def parse(self, *cli):
         return build_parser().parse_args(list(cli))
 
+    # 用途：验证全新 centered 必须提供冻结均值 checkpoint。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_fresh_centered_requires_mean_checkpoint(self):
         args = self.parse(
             "--model-type", "centered_diffusion",
@@ -64,6 +74,8 @@ class CenteredConfigCliTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "--mean-checkpoint"):
             training_config_from_args(args)
 
+    # 用途：验证全新 centered 必须提供 innovation 统计。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_fresh_centered_requires_stats(self):
         args = self.parse(
             "--model-type", "centered_diffusion",
@@ -73,6 +85,8 @@ class CenteredConfigCliTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "--centered-stats"):
             training_config_from_args(args)
 
+    # 用途：验证 centered 拒绝出厂默认的 sigma_data。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_factory_sigma_data_rejected_for_centered(self):
         # No --sigma-data: the 0.15 factory default must fail closed.
         args = self.parse(
@@ -83,6 +97,8 @@ class CenteredConfigCliTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "sigma_data=1.0"):
             training_config_from_args(args)
 
+    # 用途：验证 centered 拒绝非 1 的 sigma_data。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_nonunit_sigma_data_rejected_for_centered(self):
         args = self.parse(
             "--model-type", "centered_diffusion",
@@ -93,6 +109,8 @@ class CenteredConfigCliTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "sigma_data=1.0"):
             training_config_from_args(args)
 
+    # 用途：验证 centered 训练拒绝 init-from 与 lead stats 组合。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_centered_rejects_init_from_and_lead_stats(self):
         base = (
             "--model-type", "centered_diffusion",
@@ -109,6 +127,8 @@ class CenteredConfigCliTests(unittest.TestCase):
                 self.parse(*base, "--lead-stats", "/fake/old.json")
             )
 
+    # 用途：验证全新 centered 配置正确填充模型字段。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_fresh_centered_config_populates_model_fields(self):
         args = self.parse(
             "--model-type", "centered_diffusion",
@@ -141,6 +161,8 @@ class CenteredConfigCliTests(unittest.TestCase):
             config.explicit_resume_fields,
         )
 
+    # 用途：验证 centered resume 不要求重新提供统计/均值路径。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_centered_resume_does_not_require_fresh_paths(self):
         args = self.parse(
             "--model-type", "centered_diffusion",
@@ -152,6 +174,8 @@ class CenteredConfigCliTests(unittest.TestCase):
         self.assertIsNone(config.mean_checkpoint_path)
         self.assertIsNone(config.centered_stats_path)
 
+    # 用途：验证配置 JSON 合并及覆盖备注的生成。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_config_json_merge_and_override_notes(self):
         config_path = os.path.join(
             os.path.dirname(os.path.abspath(__file__)),
@@ -179,6 +203,8 @@ class CenteredConfigCliTests(unittest.TestCase):
             if os.path.isfile(config_path):
                 os.remove(config_path)
 
+    # 用途：验证配置 JSON 中未知键被拒绝。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_config_json_unknown_keys_rejected(self):
         config_path = os.path.join(
             os.path.dirname(os.path.abspath(__file__)),

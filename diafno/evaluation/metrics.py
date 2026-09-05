@@ -5,6 +5,8 @@ import numpy as np
 
 
 class RunningSSTMetrics:
+    # 用途：初始化逐 lead 累计器（绝对量与残差量的和/平方和/计数）。
+    # 参数：无输入；输出 无。
     def __init__(self):
         self.count = 0
         self.sum_abs_error = 0.0
@@ -20,6 +22,8 @@ class RunningSSTMetrics:
         self.target_min = math.inf
         self.target_max = -math.inf
 
+    # 用途：累加一个批次的绝对 SST 与残差的误差统计（仅有效像素）。
+    # 参数：输入 prediction（预测）、target（真值）、mask（有效像素 mask）；输出 无。
     def update(self, prediction, target, mask):
         valid = (
             np.isfinite(prediction)
@@ -57,6 +61,8 @@ class RunningSSTMetrics:
             float(target.max())
         )
 
+    # 用途：由累计量计算 overall 与逐 lead 的 MAE/RMSE/bias/corr/std ratio。
+    # 参数：无输入；输出 指标 dict。
     def compute(self):
         if self.count == 0:
             return {
@@ -132,6 +138,8 @@ class RunningSSTMetrics:
         }
 
 
+# 用途：以 persistence 为基线计算 MSE skill。
+# 参数：输入 model_metrics/persistence_metrics（两组累计指标）；输出 标量 skill（1 − MSE_model/MSE_persistence）。
 def persistence_skill(model_metrics, persistence_metrics):
     model_mse = model_metrics.get("mse")
     persistence_mse = persistence_metrics.get("mse")

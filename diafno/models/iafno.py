@@ -24,11 +24,15 @@ from timm.layers import DropPath
 ################################################################################################################################
 
 class SinusoidalPosEmb(nn.Module):
+    # 用途：初始化正弦时间位置编码模块。
+    # 参数：输入 dim（嵌入向量维度）、theta（频率基值，默认 10000）；输出 无（构造模块状态）。
     def __init__(self, dim, theta = 10000):
         super().__init__()
         self.dim = dim
         self.theta = theta
 
+    # 用途：把标量时间/σ 值映射为 [sin, cos] 拼接的正弦嵌入。
+    # 参数：输入 x（形状 [B] 的时间标量）；输出 形状 [B, dim] 的嵌入矩阵。
     def forward(self, x):
         device = x.device
         half_dim = self.dim // 2
@@ -40,17 +44,25 @@ class SinusoidalPosEmb(nn.Module):
         return emb
 
 class RMSNorm(nn.Module):
+    # 用途：初始化 RMS 归一化层及其可学习缩放 g。
+    # 参数：输入 dim（通道数，用于 sqrt(dim) 缩放补偿）；输出 无（构造模块状态）。
     def __init__(self, dim):
         super().__init__()
         self.scale = dim ** 0.5
         self.g = nn.Parameter(torch.ones(1, dim, 1, 1, 1))
 
+    # 用途：沿通道 L2 归一化并乘 sqrt(dim)*g，等效标准 RMSNorm。
+    # 参数：输入 x（任意维度特征张量）；输出 归一化后的同形张量。
     def forward(self, x):
         return F.normalize(x, dim = 1) * self.g * self.scale # normalize 是 L2 norm 需要补一个*sqrt(dim)转为标准RMSNorm
 
+# 用途：判断对象是否非 None 的工具函数。
+# 参数：输入 x（任意对象）；输出 布尔值。
 def exists(x):
     return x is not None
 
+# 用途：val 为 None 时回退到默认值的工具函数。
+# 参数：输入 val（可能为 None 的值）、d（默认值或无参工厂）；输出 val 或 d 的结果。
 def default(val, d):
     if exists(val):
         return val
@@ -58,6 +70,8 @@ def default(val, d):
 
 # 把 3D 空间场切成 3D patch，并把每个 patch 映射成一个 embedding vector
 class PatchEmbed(nn.Module):
+    # 用途：初始化 3D patch 嵌入（Conv3d 按步长切块并升维）。
+    # 参数：输入 length（输入空间尺寸 [X,Y,Z]）、patch_size（每块尺寸）、embed_dim（每块嵌入维度）、in_chans（输入通道数）；输出 无（构造模块状态）。
     def __init__(self, length, patch_size, embed_dim, in_chans):              #####   Length & Patch_size must be 3 dims   #####
         super().__init__()
         num_patches = (length[0] // patch_size[0]) * (length[1] // patch_size[1]) * (length[2] // patch_size[2]) # 总体有多少个 patch
@@ -66,6 +80,8 @@ class PatchEmbed(nn.Module):
         self.num_patches = num_patches
         self.proj = nn.Conv3d(in_chans, embed_dim, kernel_size=patch_size, stride=patch_size)
 
+    # 用途：把条件+目标拼接后的通道展平为 Conv3d 输入并切块嵌入。
+    # 参数：输入 x（[B,C,H,W,Z] 拼接场）；输出 形状 [B,X',Y',Z',embed_dim] 的 token 特征。
     def forward(self, x):
 
         ##### make sure an input of shape: (bs x y z c nt) #####
@@ -82,6 +98,8 @@ class PatchEmbed(nn.Module):
 ################################################################################################################################
 
 class Mlp(nn.Module):
+    # 用途：初始化两层 MLP（GELU 激活 + dropout）。
+    # 参数：输入 in_features/hidden_features/out_features（输入/隐层/输出宽度）、act_layer（激活类）、drop（dropout 概率）；输出 无（构造模块状态）。
     def __init__(self, in_features, hidden_features, out_features, act_layer=nn.GELU, drop=0.):
         super().__init__()
         self.out_features = out_features
@@ -91,6 +109,8 @@ class Mlp(nn.Module):
         self.fc2 = nn.Linear(hidden_features, out_features)
         self.drop = nn.Dropout(drop)
 
+    # 用途：对 token 特征做 fc1-激活-fc2 的 MLP 变换。
+    # 参数：输入 x（[B,X,Y,Z,C] 特征）；输出 同形变换后特征。
     def forward(self, x):
 
         ##### make sure an input of shape: (bs x//px y//py z//pz embed_dim) #####
@@ -108,6 +128,8 @@ class Mlp(nn.Module):
 ################################################################################################################################
 
 class Block(nn.Module):
+    # 用途：初始化 AFNO 滤波 + MLP 的残差块单元。
+    # 参数：输入 embed_dim（token 维度）、hidden_size_factor（AFNO 通道扩张倍数）、num_blocks（频率分块数）、drop_path（随机深度率）、double_skip（双残差开关），其余为兼容旧签名的占位；输出 无（构造模块状态）。
     def __init__(
             self, nlayer, dim, patch_size, embed_dim, hidden_size_factor, num_blocks, in_chans, 
             drop=0., drop_path=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm, double_skip=True
@@ -122,6 +144,8 @@ class Block(nn.Module):
         self.norm2 = norm_layer(embed_dim)
         self.double_skip = double_skip
 
+    # 用途：前向执行 x = x + MLP(AFNO(norm(x)))（double_skip 时为双残差）。
+    # 参数：输入 x（patch token 特征 [B,X,Y,Z,C]）；输出 变换后的同形特征。
     def forward(self, x):
 
         ##### must after patch_embed #####
@@ -148,6 +172,8 @@ class Block(nn.Module):
 ################################################################################################################################
 
 class AFNO(nn.Module):
+    # 用途：初始化 AFNO 的复数域块对角两层权重（w1/b1/w2/b2）与稀疏化参数。
+    # 参数：输入 hidden_size（通道数）、hidden_size_factor（块内扩张倍数）、num_blocks（频率块数）、sparsity_threshold（softshrink 阈值）、hard_thresholding_fraction（保留高频比例）；输出 无（构造模块状态）。
     def __init__(self, hidden_size, hidden_size_factor, num_blocks, sparsity_threshold=0.01, hard_thresholding_fraction=1):
         super().__init__()
 
@@ -164,6 +190,8 @@ class AFNO(nn.Module):
         self.w2 = nn.Parameter(self.scale * torch.randn(2, self.num_blocks, self.block_size * self.hidden_size_factor, self.block_size))
         self.b2 = nn.Parameter(self.scale * torch.randn(2, self.num_blocks, self.block_size))
 
+    # 用途：3D rFFT -> 分块两层 MLP -> softshrink 稀疏化 -> irFFT，并加输入残差。
+    # 参数：输入 x（[B,X,Y,Z,C] token 特征）；输出 频域全局混合后的同形特征（含 bias 残差）。
     def forward(self, x):
         bias = x
 
@@ -217,6 +245,8 @@ class AFNO(nn.Module):
 ##################################################################################################################
 
 class IAFNODiff(nn.Module):
+    # 用途：构建 IAFNO 去噪网络：patch 嵌入、位置编码、外层 Block 组、σ 嵌入 FiLM 注入与升降卷积。
+    # 参数：输入 dim（空间尺寸 [448,448,1]）、patch_size（[8,8,1]）、embed_dim（嵌入维度）、num_blocks（频率块数）、cond_chans（条件通道：7 日 SST+mask=8）、target_chans（目标通道 15）、ex_layer（外层块数）、nlayer（隐式迭代轮数）、hidden_size_factor（扩张倍数）、dim_f（须等于 dim）、drop_rate（位置编码 dropout）；输出 无（构造模块状态）。
     def __init__(
             self,
             dim, # (448, 448, 1) 单个大 patch 的维度，兼容当前 hdf5 数据集
@@ -292,6 +322,8 @@ class IAFNODiff(nn.Module):
         self.upproj = nn.Conv3d(self.model_in_chans, hidden_chans, 3, padding=1)
         self.downproj = nn.Conv3d(hidden_chans, self.model_in_chans, 3, padding=1)
 
+    # 用途：跑主干：nlayer 轮隐式迭代 × ex_layer 个块（残差系数 1/(nlayer*ex_layer)），末尾 LayerNorm。
+    # 参数：输入 x（patch token 特征）；输出 归一化后的 token 特征。
     def forward_features(self, x):
         B = x.shape[0]
 
@@ -311,6 +343,8 @@ class IAFNODiff(nn.Module):
 
         return x
 
+    # 用途：去噪前向：拼接条件与加噪目标，σ 嵌入经 FiLM scale/shift 调制后过主干与 head 还原为像素场。
+    # 参数：输入 x（加噪目标 [B,target_chans,H,W,Z]）、time（c_noise 编码 [B]）、condition（条件场 [B,cond_chans,H,W,Z]）；输出 形状同目标的网络输出 F_θ（EDM 预条件前的原始输出）。
     def forward(self, x, time, condition):
 
         if condition is None:
