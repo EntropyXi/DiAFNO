@@ -166,7 +166,8 @@ def write_markdown(report, path):
         lines.append("")
     lines += ["## 预测图", "", "每张图固定一个区域与初始化时间，三行依次为 DiAFNO、IAFNO、persistence，四列为 Day 1/5/10/15。图中 DiAFNO 显示集合均值。所有图共享 SST 色标；灰色为对应预测日的无效目标像素。", ""]
     for image in report.get("figures", []):
-        lines += [f"![{image}]({image})", ""]
+        caption = report.get("figure_caption", image)
+        lines += [f"![{caption}]({image})", "", caption, ""]
     lines += ["## 来源与复现", "", "```json", json.dumps(provenance, ensure_ascii=False, indent=2), "```", ""]
     Path(path).write_text("\n".join(lines), encoding="utf-8")
 

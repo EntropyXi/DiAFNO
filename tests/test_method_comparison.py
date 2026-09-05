@@ -14,6 +14,7 @@ from diafno.evaluation.method_comparison import (
 )
 from diafno.evaluation.validator import OSTIAValidator
 from scripts.compare_ostia_methods import predict_physical_members, assert_paired
+from scripts.finalize_ostia_comparison import choose_region
 
 
 def create_layout_demo(output):
@@ -40,6 +41,16 @@ def create_layout_demo(output):
 
 
 class ComparisonTests(unittest.TestCase):
+    def test_selection_respects_ocean_fraction_and_positive_skill(self):
+        counts = np.array([[10, 10], [60, 60], [70, 70], [90, 90]])
+        main = np.array([[0., 0.], [3., 3.], [8., 8.], [1., 1.]])
+        baseline = np.array([[1., 1.], [8., 8.], [10., 10.], [0.5, 0.5]])
+        result = choose_region([10, 20, 30, 40], counts, main, baseline, 100)
+        self.assertEqual(result['selected']['dataset_index'], 20)
+        self.assertFalse(result['candidates'][0]['eligible'])
+        with self.assertRaisesRegex(ValueError, 'No candidate'):
+            choose_region([10], counts[:1], main[:1], baseline[:1], 100)
+
     def test_crps_matches_pairwise_formula_and_single_member(self):
         rng = np.random.default_rng(72)
         members, target = rng.normal(size=(8, 11)), rng.normal(size=11)
@@ -137,6 +148,13 @@ class ComparisonTests(unittest.TestCase):
             self.assertEqual(report["num_samples"], 1)
             self.assertEqual(len(report["metrics"]), 5)
             self.assertIsNotNone(report["metrics"]["overall"]["DiAFNO"]["crps"])
+            selected = argv.copy()
+            selected[selected.index("--output-dir") + 1] = str(root / "selected")
+            selected.extend(["--sample-index", "0"])
+            with patch("sys.argv", selected):
+                main()
+            chosen = json.loads((root / "selected" / "comparison.json").read_text())
+            self.assertEqual(chosen['provenance']['sample_indices'], [0])
 
 
 if __name__ == "__main__":

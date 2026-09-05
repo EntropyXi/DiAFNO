@@ -89,6 +89,7 @@ def main():
     parser.add_argument("--render-only", action="store_true", help="Render saved cases/scores without loading checkpoints or GPU")
     parser.add_argument("--split", choices=("test", "val"), default="test")
     parser.add_argument("--max-samples", type=int, default=200)
+    parser.add_argument("--sample-index", type=int, help="Evaluate this exact split-relative dataset index, with the same member seeds")
     parser.add_argument("--plot-samples", type=int, default=3)
     parser.add_argument("--ensemble-members", type=int, default=16)
     parser.add_argument("--sampling-steps", type=int, default=16)
@@ -120,6 +121,13 @@ def main():
     from diafno.evaluation.config import OSTIAValidationConfig
     from diafno.evaluation.validator import OSTIAValidator
     from diafno.inference.writer import InferenceSampleWriter
+    class SelectedValidator(OSTIAValidator):
+        def _build_indices(self):
+            if args.sample_index is None:
+                return super()._build_indices()
+            if not 0 <= args.sample_index < len(self.dataset):
+                raise ValueError("sample-index outside dataset")
+            return [args.sample_index]
     if args.device.startswith("cuda") and not torch.cuda.is_available():
         raise RuntimeError("CUDA unavailable; choose --device cpu explicitly")
     validators = []
@@ -133,7 +141,7 @@ def main():
             sampling_steps=args.sampling_steps, s_churn=args.s_churn if index == 0 else None,
             ensemble_members=1, use_amp=not args.no_amp,
         )
-        validators.append(OSTIAValidator(config).setup())
+        validators.append(SelectedValidator(config).setup())
     main_model, deterministic = validators
     if main_model.model_config.model_type not in ("diffusion", "centered_diffusion") or deterministic.model_config.model_type != "deterministic":
         raise ValueError("Expected diffusion/centered DiAFNO and deterministic IAFNO checkpoints")
@@ -151,7 +159,7 @@ def main():
         "split": args.split, "sst_unit": args.sst_unit, "sst_offset": args.sst_offset,
         "ensemble_members": args.ensemble_members, "sampling_steps": args.sampling_steps,
         "seed": args.seed, "sample_indices": indices, "plot_positions": sorted(plot_positions),
-        "sampling": "fixed seed random subset; sorted indices; figures evenly spaced positions chosen before forecasts",
+        "sampling": "explicit dataset index" if args.sample_index is not None else "fixed seed random subset; sorted indices; figures evenly spaced positions chosen before forecasts",
         "member_seed": "seed + dataset_index * 1000 + member_index; one sample per inference batch",
         "h5_path": str(Path(args.h5_path).resolve()), "h5_size": Path(args.h5_path).stat().st_size,
         "data_manifest": args.data_manifest,
