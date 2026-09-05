@@ -1,3 +1,4 @@
+# 用途：只用训练集计算未来 SST 残差的逐 lead 均值与标准差。
 import argparse
 import json
 import os

@@ -1,3 +1,4 @@
+# 用途：封装确定性 IAFNO，预测按 lead 标准化的 SST 残差。
 import math
 
 import torch

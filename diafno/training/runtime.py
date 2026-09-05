@@ -1,3 +1,4 @@
+# 用途：初始化设备、随机种子与分布式进程环境。
 import os
 import random
 

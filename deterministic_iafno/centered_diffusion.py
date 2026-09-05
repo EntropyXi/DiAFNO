@@ -1,3 +1,4 @@
+# 用途：冻结确定性均值网络，并训练和采样中心化创新扩散模型。
 import math
 
 import torch

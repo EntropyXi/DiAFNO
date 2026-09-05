@@ -1,3 +1,4 @@
+# 用途：选择可用 GPU，执行短训练烟测以检查训练管线。
 import os
 import subprocess
 import sys

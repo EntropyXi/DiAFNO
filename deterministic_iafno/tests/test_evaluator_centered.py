@@ -1,3 +1,4 @@
+# 用途：验证centered 模型的在线验证行为。
 import unittest
 from types import SimpleNamespace
 

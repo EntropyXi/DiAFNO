@@ -1,3 +1,4 @@
+# 用途：声明 deterministic_iafno 包并组织公共接口。
 """Small-change deterministic IAFNO experiment support."""
 
 from .checkpoint_semantics import (

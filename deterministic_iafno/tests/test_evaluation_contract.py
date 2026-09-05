@@ -1,3 +1,4 @@
+# 用途：验证有效像素、残差还原及评估协议。
 import unittest
 from types import SimpleNamespace
 

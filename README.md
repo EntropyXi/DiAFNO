@@ -1,3 +1,40 @@
+# DiAFNO OSTIA 主训练项目
+
+输入前 7 日 SST，预测后 15 日 SST；本目录组织源码、配置和实验结果。
+本层文件用途见下方；子目录详见各自 README。实验产物保持原路径；本次不改变训练或评估行为。
+
+## 本层项目树
+
+```text
+./
+├── archive/  # 已归档的计划书与历史排障工具，不作为当前运行入口
+├── artifacts/  # 审计、统计量、调度状态和代表性烟测等辅助产物
+├── configs/  # 正式训练与 A0–A5 架构消融的声明式配置
+├── deterministic_iafno/  # 确定性残差基线与冻结均值的 centered diffusion 扩展
+├── diafno/  # 日尺度 SST 的数据、模型、训练、验证和推理核心包
+├── docs/  # 仍有参考价值的实现说明、分析报告和项目导航
+├── experiments/  # 训练权重、烟测、消融及验证测试结果，原路径保留（服务器产物）
+├── scripts/  # 训练运行、烟测、验证监测、消融和结果整理工具
+├── .gitignore  # 排除缓存、原始数据、权重和运行输出等非源码文件
+├── evaluate_ostia.py  # 读取已保存的预测结果并汇总离线评估指标
+├── infer_ostia.py  # 启动 SST 批量推理并保存预测结果
+├── README.md  # 说明本目录用途并列出本层文件和子目录
+├── smoke_ostia.py  # 选择可用 GPU，执行短训练烟测以检查训练管线
+├── trainer_ostia.py  # 启动 OSTIA 训练并解析单卡或分布式运行参数
+├── validate_ostia.py  # 加载 checkpoint，在验证或测试划分上推理并计算指标
+├── validation_absolute_churn0_ens8.json  # validation_absolute_churn0_ens8.json 对应协议或 checkpoint 的验证评分（服务器产物）
+├── validation_metrics_epoch21.json  # validation_metrics_epoch21.json 对应协议或 checkpoint 的验证评分（服务器产物）
+├── validation_persistence.json  # validation_persistence.json 对应协议或 checkpoint 的验证评分（服务器产物）
+├── validation_probe_abs_sigma002.json  # validation_probe_abs_sigma002.json 对应协议或 checkpoint 的验证评分（服务器产物）
+├── validation_probe_abs_sigma005.json  # validation_probe_abs_sigma005.json 对应协议或 checkpoint 的验证评分（服务器产物）
+├── validation_probe_abs_sigma03.json  # validation_probe_abs_sigma03.json 对应协议或 checkpoint 的验证评分（服务器产物）
+└── validation_residual_smoke.json  # validation_residual_smoke.json 对应协议或 checkpoint 的验证评分（服务器产物）
+```
+
+详细保留策略与 worktree 区别见 [项目导航](docs/PROJECT_LAYOUT.md)，历史计划统一见 [计划归档](archive/plans/README.md)。
+
+## 原有使用说明（保留）
+
 # DiAFNO for daily OSTIA SST forecasting
 
 This repository adapts DiAFNO to predict 15 consecutive days of OSTIA sea-surface temperature from the previous 7 consecutive days.

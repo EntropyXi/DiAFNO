@@ -1,3 +1,4 @@
+# 用途：实现带时间条件的隐式自适应 Fourier 神经算子骨干。
 # ---------------------------------------------------------------------------------------------
 # Author: Yuchi Jiang
 # LatestVersionDate: 07/27/2026 (specifically designed for diffusion)

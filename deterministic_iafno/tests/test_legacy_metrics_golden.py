@@ -1,3 +1,4 @@
+# 用途：验证旧版本指标的固定数值回归。
 import math
 import unittest
 

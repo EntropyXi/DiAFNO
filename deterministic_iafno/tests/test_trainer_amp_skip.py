@@ -1,3 +1,4 @@
+# 用途：验证AMP 溢出跳步时优化器与调度器的一致性。
 import os
 import shutil
 import unittest

@@ -1,3 +1,4 @@
+# 用途：计算有效像素掩膜下、适配 DDP 全局归一化的 MSE。
 import torch
 import torch.distributed as dist
 

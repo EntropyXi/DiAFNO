@@ -1,3 +1,4 @@
+# 用途：对配对预报误差执行时间分块 bootstrap 并计算 skill 区间。
 import math
 
 import numpy as np

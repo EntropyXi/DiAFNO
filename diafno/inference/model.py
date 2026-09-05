@@ -1,3 +1,4 @@
+# 用途：按配置恢复用于推理的模型权重。
 import torch
 
 from ..models.config import OSTIAModelConfig

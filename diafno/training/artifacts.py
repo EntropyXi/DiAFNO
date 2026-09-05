@@ -1,3 +1,4 @@
+# 用途：保存与恢复权重、优化器状态及训练曲线等产物。
 from .normalization import NormalizationState
 import json
 import os

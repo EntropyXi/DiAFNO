@@ -1,3 +1,4 @@
+# 用途：验证冻结均值和中心化扩散的训练采样行为。
 import unittest
 
 import torch

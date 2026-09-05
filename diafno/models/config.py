@@ -1,3 +1,4 @@
+# 用途：定义模型配置并按 checkpoint 语义构造对应模型。
 from dataclasses import asdict, dataclass, fields
 from typing import Optional, Tuple
 

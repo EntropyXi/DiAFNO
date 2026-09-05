@@ -1,3 +1,4 @@
+# 用途：执行训练循环、AMP、梯度累积及 checkpoint 保存。
 import math
 import os
 from contextlib import nullcontext

@@ -1,3 +1,4 @@
+# 用途：构造训练采样器与 DataLoader，并组织批量 HDF5 读取。
 import random
 
 import numpy as np

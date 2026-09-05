@@ -1,3 +1,4 @@
+# 用途：验证确定性包装与真实 IAFNO 骨干的集成。
 import unittest
 
 import torch

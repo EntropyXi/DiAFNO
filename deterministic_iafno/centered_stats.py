@@ -1,3 +1,4 @@
+# 用途：校验创新统计量、冻结均值身份及其来源一致性。
 """Centered innovation statistics validation and provenance helpers.
 
 These functions are the single authoritative validation surface for
