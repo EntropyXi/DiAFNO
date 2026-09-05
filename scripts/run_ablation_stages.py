@@ -39,6 +39,8 @@ from ablation_common import (
 )
 
 
+# 用途：按协议计算整 epoch 的阶段预算与可续训的 resume 视界。
+# 参数：输入 protocol（阶段协议）、gpus/batch_per_gpu/gradient_accumulation（并行形状）；输出 含 first/resume 的预算 dict。
 def stage_run_budgets(protocol, gpus, batch_per_gpu,
                       gradient_accumulation):
     """Whole-epoch stage budgets with a runnable resume horizon.
@@ -123,6 +125,8 @@ def stage_run_budgets(protocol, gpus, batch_per_gpu,
     }
 
 
+# 用途：A5 必须显式给出 A3/A4 胜者块数，否则拒绝（fail-closed）。
+# 参数：输入 config_id（配置 id）、a5_winner_blocks（胜者块数）；输出 块数或 None。
 def resolve_winner_blocks(config_id, a5_winner_blocks):
     """A5 never silently runs with the interim num_blocks.
 
@@ -148,6 +152,8 @@ def resolve_winner_blocks(config_id, a5_winner_blocks):
     return int(a5_winner_blocks)
 
 
+# 用途：返回阶段实际训练用的 num_blocks（胜者覆盖中间占位）。
+# 参数：输入 identity（配置身份）、winner_blocks（胜者块数）；输出 (有效块数, 中间占位)。
 def effective_num_blocks(identity, winner_blocks):
     """The num_blocks the stage actually trains with.
 
@@ -169,6 +175,8 @@ def effective_num_blocks(identity, winner_blocks):
     return effective, interim
 
 
+# 用途：组装不可变的阶段 manifest（记录有效架构、预算、协议与来源）。
+# 参数：输入 config_id/identity/config_path/stage/winner_blocks/cond_chans/budgets 等元数据；输出 manifest dict。
 def compose_manifest(config_id, identity, config_path, stage,
                      winner_blocks, cond_chans, budgets,
                      effective_batch, seed, h5_path, lead_stats,
@@ -211,6 +219,8 @@ def compose_manifest(config_id, identity, config_path, stage,
     return manifest
 
 
+# 用途：加载配置 id 对应的消融 JSON 与身份。
+# 参数：输入 config_id；输出 (identity, path, payload)。
 def load_config_json(config_id):
     identity = ABLATION_CONFIGS[config_id]
     config_path = os.path.join(REPO_ROOT, identity["config"])
@@ -245,6 +255,8 @@ def load_config_json(config_id):
     return identity, config_path, payload
 
 
+# 用途：复用或重算 train-only lead 统计（身份校验 fail-closed）。
+# 参数：输入 config_root/identity/payload/h5_path/data_manifest；输出 统计文件路径。
 def resolve_lead_stats(config_root, identity, payload, h5_path,
                        data_manifest=None):
     """Reuse or recompute the train-only lead statistics.
@@ -285,6 +297,8 @@ def resolve_lead_stats(config_root, identity, payload, h5_path,
     return stats_path
 
 
+# 用途：证明统计文件属于当前配置与数据清单（身份一致）。
+# 参数：输入 stats_path、identity、payload、h5_path、data_manifest；输出 无（不一致抛异常）。
 def validate_lead_stats_identity(stats_path, identity, payload,
                                  h5_path, data_manifest=None):
     """Prove an automatic or explicit stats file belongs to the run."""
@@ -319,6 +333,8 @@ def validate_lead_stats_identity(stats_path, identity, payload,
     return stats
 
 
+# 用途：计算数据清单的规范 SHA。
+# 参数：输入 path；输出 摘要。
 def _manifest_sha256(path):
     from diafno.data.manifest import (
         canonical_manifest_sha256,
@@ -327,6 +343,8 @@ def _manifest_sha256(path):
     return canonical_manifest_sha256(load_data_manifest(path))
 
 
+# 用途：校验 --data-manifest 契约（每个配置都必须绑定共享清单）。
+# 参数：输入 config_id、identity、data_manifest_arg；输出 清单 dict。
 def resolve_data_manifest(config_id, identity, data_manifest_arg):
     """Validate the --data-manifest contract of a configuration.
 
@@ -353,6 +371,8 @@ def resolve_data_manifest(config_id, identity, data_manifest_arg):
     return {"path": path, "sha256": sha256}
 
 
+# 用途：构建一条 torchrun 训练命令。
+# 参数：输入 args、config_path、output_dir、预算参数、lead_stats_path 等；输出 命令列表。
 def trainer_command(args, config_path, output_dir, samples_per_epoch,
                     num_epochs, lead_stats_path=None, resume_path=None,
                     checkpoint_interval=1, allow_override=False,
@@ -407,6 +427,8 @@ def trainer_command(args, config_path, output_dir, samples_per_epoch,
     return command
 
 
+# 用途：只读校验 checkpoint 的 epoch/global_step 符合阶段预算。
+# 参数：输入 checkpoint_path、expected_epoch/global_step、label；输出 无（不符抛异常）。
 def verify_checkpoint_step(checkpoint_path, expected_epoch,
                            expected_global_step, label=""):
     """Read latest.pth (CPU, read-only) and verify the resume
@@ -452,6 +474,8 @@ def verify_checkpoint_step(checkpoint_path, expected_epoch,
     return checkpoint
 
 
+# 用途：构建固定协议验证命令（val-16/200 + seed + manifest）。
+# 参数：输入 checkpoint_path、output_path、h5_path、num_samples、seed、data_manifest_path；输出 命令列表。
 def validation_command(checkpoint_path, output_path, h5_path,
                        num_samples, seed, data_manifest_path=None):
     command = [
@@ -477,6 +501,8 @@ def validation_command(checkpoint_path, output_path, h5_path,
     return command
 
 
+# 用途：生成阶段日志文件名（避免双后缀）。
+# 参数：输入 stage_root、name；输出 日志路径。
 def logfile_for(stage_root, name):
     filename = name if name.endswith(".log") else f"{name}.log"
     path = os.path.join(stage_root, filename)
@@ -484,6 +510,8 @@ def logfile_for(stage_root, name):
     return path
 
 
+# 用途：执行训练阶段命令并落盘日志。
+# 参数：输入 args、command、log_path；输出 无。
 def run_trainer_phase(args, command, log_path):
     env = os.environ.copy()
     if args.gpu_ids:
@@ -512,6 +540,8 @@ def run_trainer_phase(args, command, log_path):
         )
 
 
+# 用途：写阶段 manifest JSON。
+# 参数：输入 stage_root、manifest；输出 无。
 def write_manifest(stage_root, manifest):
     path = os.path.join(stage_root, "manifest.json")
     with open(path, "w", encoding="utf-8") as file:
@@ -519,6 +549,8 @@ def write_manifest(stage_root, manifest):
     print(f"[ablation] manifest: {path}")
 
 
+# 用途：入口：解析参数并按阶段执行 smoke/筛选/排名流程。
+# 参数：无输入（读命令行）；输出 无。
 def main():
     parser = argparse.ArgumentParser(
         description=__doc__,

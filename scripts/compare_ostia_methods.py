@@ -21,6 +21,8 @@ from diafno.evaluation.method_comparison import (
 )
 
 
+# 用途：计算文件 SHA256。
+# 参数：输入 path；输出 摘要。
 def sha256(path):
     digest = hashlib.sha256()
     with open(path, "rb") as stream:
@@ -29,6 +31,8 @@ def sha256(path):
     return digest.hexdigest()
 
 
+# 用途：校验两份验证结果确为同一样本宇宙的配对评估。
+# 参数：输入 left/right（两份验证载荷）；输出 无（不配对抛异常）。
 def assert_paired(left, right):
     import torch
     for key in ("input_start_time", "target_start_time", "target_end_time", "spatial_index"):
@@ -38,6 +42,8 @@ def assert_paired(left, right):
         raise ValueError("Unpaired target masks")
 
 
+# 用途：按成员调用评分预测器：centered 采样、确定性直出并重建物理空间。
+# 参数：输入 validator（验证器）、condition（条件）、sample_id（样本号）、count（成员数）；输出 物理空间成员堆叠。
 def predict_physical_members(validator, condition, sample_id, count):
     """Call the scored predictor for each member: residual anchoring once.
 
@@ -62,6 +68,8 @@ def predict_physical_members(validator, condition, sample_id, count):
     return np.stack(members)
 
 
+# 用途：为已有结果目录重绘面板图。
+# 参数：输入 directory（结果目录）、dpi；输出 无。
 def render_existing(directory, dpi):
     report = json.loads((directory / "comparison.json").read_text(encoding="utf-8"))
     cases = []
@@ -80,6 +88,8 @@ def render_existing(directory, dpi):
     print(out)
 
 
+# 用途：入口：执行配对三方法评估并输出图表与 Markdown。
+# 参数：无输入（读命令行）；输出 无。
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--diafno-checkpoint")

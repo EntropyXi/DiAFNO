@@ -18,6 +18,8 @@ from scripts.compare_ostia_methods import predict_physical_members, assert_paire
 from scripts.finalize_ostia_comparison import choose_region
 
 
+# 用途：生成合成排版演示（非真实数据）。
+# 参数：输入 output（输出路径）；输出 无。
 def create_layout_demo(output):
     """Synthetic illustration only; not real checkpoint/test performance."""
     output = Path(output)
@@ -42,6 +44,8 @@ def create_layout_demo(output):
 
 
 class ComparisonTests(unittest.TestCase):
+    # 用途：验证区域选择遵循海洋占比且要求正 skill。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_selection_respects_ocean_fraction_and_positive_skill(self):
         counts = np.array([[10, 10], [60, 60], [70, 70], [90, 90]])
         main = np.array([[0., 0.], [3., 3.], [8., 8.], [1., 1.]])
@@ -52,6 +56,8 @@ class ComparisonTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'No candidate'):
             choose_region([10], counts[:1], main[:1], baseline[:1], 100)
 
+    # 用途：验证 CRPS 与成对公式一致且单成员退化正确。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_crps_matches_pairwise_formula_and_single_member(self):
         rng = np.random.default_rng(72)
         members, target = rng.normal(size=(8, 11)), rng.normal(size=11)
@@ -60,6 +66,8 @@ class ComparisonTests(unittest.TestCase):
         np.testing.assert_allclose(empirical_crps(members[:1], target), np.abs(members[0] - target))
         self.assertAlmostEqual(empirical_crps(np.array([[0.], [2.]]), np.array([1.]))[0], 0.5)
 
+    # 用途：验证集合均值与全 lead overall 的口径。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_ensemble_mean_and_all_lead_overall(self):
         target = np.zeros((15, 2, 2))
         mask = np.ones_like(target)
@@ -77,12 +85,16 @@ class ComparisonTests(unittest.TestCase):
         self.assertAlmostEqual(result["overall"]["persistence"]["mse_skill"], 0)
         self.assertAlmostEqual(result["overall"]["persistence"]["crps"], result["overall"]["persistence"]["mae"])
 
+    # 用途：验证 CI 保持比例关系与零基线情形。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_ci_preserves_ratio_and_zero_baseline(self):
         result = paired_skill_ci([1, 2, 3], [2, 4, 6], [0, 30, 60], origin=0, replicates=100)
         np.testing.assert_allclose(result["interval"], [0.5, 0.5])
         self.assertIsNone(paired_skill_ci([1, 1], [0, 0], [0, 30], origin=0, replicates=10)["interval"])
         self.assertIsNone(paired_skill_ci([1, 1], [2, 2], [0, 1], origin=0, replicates=10)["interval"])
 
+    # 用途：验证非有限预报在累计前被拒绝。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_nonfinite_forecast_rejected_before_accumulation(self):
         target = np.zeros((15, 2, 2))
         forecasts = {m: target[None].copy() for m in METHODS}
@@ -92,6 +104,8 @@ class ComparisonTests(unittest.TestCase):
             scores.update(forecasts, target, np.ones_like(target), 0)
         self.assertFalse(scores.times)
 
+    # 用途：验证成员预测只重建一次 anchor 并恢复配置。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_member_prediction_reanchors_once_and_restores_config(self):
         validator = OSTIAValidator.__new__(OSTIAValidator)
         validator.config = SimpleNamespace(seed=123, ensemble_members=16, prediction_mode="model", condition_ablation="none")
@@ -100,6 +114,8 @@ class ComparisonTests(unittest.TestCase):
         validator.amp_enabled = False
         validator.sampling_steps = 16
         seeds = []
+        # 用途：测试辅助函数。
+        # 参数：见函数签名（测试夹具辅助）；输出 测试用构造对象。
         def sample(condition, num_sample_steps, seed):
             seeds.append(seed)
             return torch.ones(1, 15, 2, 2, 1) * 0.5
@@ -112,6 +128,8 @@ class ComparisonTests(unittest.TestCase):
         self.assertEqual(validator.config.ensemble_members, 16)
         self.assertEqual(validator.config.seed, 123)
 
+    # 用途：验证元数据不配对时被拒绝。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_paired_metadata_rejected(self):
         metadata = {key: torch.tensor([1]) for key in ("input_start_time", "target_start_time", "target_end_time", "spatial_index")}
         left = dict(metadata=metadata, target_mask=torch.ones(1))
@@ -119,6 +137,8 @@ class ComparisonTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Unpaired"):
             assert_paired(left, right)
 
+    # 用途：验证面板图与五张 Markdown 表的产出。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_figure_and_five_markdown_tables(self):
         with tempfile.TemporaryDirectory() as temp:
             out = Path(temp) / "demo"
@@ -130,6 +150,8 @@ class ComparisonTests(unittest.TestCase):
             self.assertTrue((out / "forecast_region_000.png").exists())
             self.assertTrue((out / "forecast_region_000.pdf").exists())
 
+    # 用途：验证真实小 checkpoint+HDF5 的端到端流程。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_end_to_end_real_tiny_checkpoint_and_h5(self):
         from diafno.models.config import OSTIAModelConfig
         from scripts.compare_ostia_methods import main

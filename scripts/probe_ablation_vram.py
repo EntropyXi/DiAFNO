@@ -26,6 +26,8 @@ if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
 
+# 用途：按消融 JSON 精确镜像模型配置（deterministic raw 包装，无需 lead stats）。
+# 参数：输入 config_path（消融 JSON）、num_blocks/implicit_layer（可选覆盖）；输出 OSTIAModelConfig。
 def build_probe_config(config_path, num_blocks=None,
                        implicit_layer=None):
     """Model config mirroring the ablation JSON exactly (same schema,
@@ -58,6 +60,8 @@ def build_probe_config(config_path, num_blocks=None,
     return config
 
 
+# 用途：执行预热与计量 forward/backward，记录峰值显存与吞吐（OOM 按档记录）。
+# 参数：输入 config（配置）、batch_size（批大小）、device（设备）、warmup/iterations（步数）、use_amp（是否 AMP）；输出 计量结果 dict。
 def measure(config, batch_size, device, warmup=2, iterations=3,
             use_amp=True):
     import torch
@@ -154,6 +158,8 @@ def measure(config, batch_size, device, warmup=2, iterations=3,
     }
 
 
+# 用途：入口：逐 batch 档探测并写 JSON 报告（拒绝覆盖）。
+# 参数：无输入（读命令行）；输出 无。
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", required=True,

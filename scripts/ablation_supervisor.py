@@ -35,10 +35,14 @@ if REPO_ROOT not in sys.path:
 
 # --- injectable environment seams (monkeypatched in tests) ----------
 
+# 用途：判断产物文件是否已存在。
+# 参数：输入 path；输出 布尔值。
 def _file_exists(path):
     return os.path.isfile(path)
 
 
+# 用途：判断 tmux 会话是否存活。
+# 参数：输入 session_name；输出 布尔值。
 def _session_alive(session_name):
     completed = subprocess.run(
         ["tmux", "has-session", "-t", session_name],
@@ -47,6 +51,8 @@ def _session_alive(session_name):
     return completed.returncode == 0
 
 
+# 用途：在 tmux 会话中启动任务命令。
+# 参数：输入 session_name、command、log_path；输出 无。
 def _launch(session_name, command, log_path):
     log_dir = os.path.dirname(os.path.abspath(log_path))
     if log_dir:
@@ -70,10 +76,14 @@ def _launch(session_name, command, log_path):
         )
 
 
+# 用途：当前 UTC 时间（可注入测试）。
+# 参数：无输入；输出 datetime。
 def _now_utc():
     return datetime.now(timezone.utc)
 
 
+# 用途：可注入的休眠。
+# 参数：输入 seconds（秒）；输出 无。
 def _sleep(seconds):
     time.sleep(seconds)
 
@@ -83,6 +93,8 @@ def _sleep(seconds):
 class Supervisor:
     """Dependency-gated, restart-bounded pipeline driver."""
 
+    # 用途：初始化监督器：计划、状态文件、日志与可注入环境钩子。
+    # 参数：输入 plan（任务计划）、state_path（状态文件）、log（日志）、launch/session_alive/file_exists/now/sleep（可注入钩子）、workdir（工作目录）；输出 无。
     def __init__(self, plan, state_path, log=None,
                  launch=_launch,
                  session_alive=_session_alive,
@@ -112,6 +124,8 @@ class Supervisor:
         self.state = self._load_state()
         self._validate_tasks()
 
+    # 用途：加载持久化任务状态（损坏时回退空状态）。
+    # 参数：无输入；输出 状态 dict。
     def _load_state(self):
         if not os.path.isfile(self.state_path):
             return {"version": 1, "tasks": {}}
@@ -128,6 +142,8 @@ class Supervisor:
             return {"version": 1, "tasks": {}}
         return state
 
+    # 用途：持久化任务状态。
+    # 参数：无输入；输出 无。
     def _save_state(self):
         directory = os.path.dirname(self.state_path)
         if directory:
@@ -137,6 +153,8 @@ class Supervisor:
             json.dump(self.state, file, ensure_ascii=False, indent=2)
         os.replace(temporary, self.state_path)
 
+    # 用途：校验任务计划的 id 唯一性与依赖闭合。
+    # 参数：无输入；输出 无（违规抛异常）。
     def _validate_tasks(self):
         for task in self.tasks:
             for key in ("id", "session", "command", "log", "outputs",
@@ -157,18 +175,24 @@ class Supervisor:
             if len(ids) != len(set(ids)):
                 raise ValueError("task ids must be unique")
 
+    # 用途：判断任务的输出产物是否齐备。
+    # 参数：输入 task（任务 dict）；输出 布尔值。
     def _task_done(self, task):
         return all(
             self.file_exists(os.path.join(self.workdir, path))
             for path in task["outputs"]
         )
 
+    # 用途：判断任务依赖是否全部完成。
+    # 参数：输入 task；输出 布尔值。
     def _deps_satisfied(self, task):
         return all(
             self.file_exists(os.path.join(self.workdir, path))
             for path in task.get("deps", [])
         )
 
+    # 用途：取任务状态记录（缺省新建）。
+    # 参数：输入 task_id；输出 状态 dict。
     def _task_state(self, task_id):
         entry = self.state["tasks"].get(task_id)
         if not isinstance(entry, dict):
@@ -176,6 +200,8 @@ class Supervisor:
             self.state["tasks"][task_id] = entry
         return entry
 
+    # 用途：评估单个任务：返回 done/waiting/launched/restarted 之一并执行相应动作。
+    # 参数：输入 task（任务 dict）；输出 状态字符串。
     def evaluate_task(self, task):
         """Return 'done' | 'waiting' | 'launched' | 'restarted'."""
         task_id = task["id"]
@@ -224,6 +250,8 @@ class Supervisor:
         )
         return "launched"
 
+    # 用途：完整评估一轮全部任务。
+    # 参数：无输入；输出 无。
     def evaluate_once(self):
         results = {}
         for task in self.tasks:
@@ -231,12 +259,16 @@ class Supervisor:
         self._save_state()
         return results
 
+    # 用途：判断是否全部任务完成。
+    # 参数：无输入；输出 布尔值。
     def all_done(self):
         return all(
             self._task_done(task)
             for task in self.tasks
         )
 
+    # 用途：监督主循环：周期评估直至全部完成或单次模式。
+    # 参数：输入 interval_seconds（轮询间隔）、once（只跑一轮）；输出 无。
     def run_loop(self, interval_seconds, once=False):
         timestamp = self.now()
         beijing = timestamp + timedelta(hours=8)
@@ -259,12 +291,16 @@ class Supervisor:
             self.sleep(int(interval_seconds))
 
 
+# 用途：读取并解析任务计划 JSON。
+# 参数：输入 path；输出 计划 dict。
 def load_plan(path):
     with open(path, "r", encoding="utf-8") as file:
         plan = json.load(file)
     return plan
 
 
+# 用途：入口：解析参数并启动监督循环。
+# 参数：无输入（读命令行）；输出 无。
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--plan", required=True)

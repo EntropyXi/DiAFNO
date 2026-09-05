@@ -39,6 +39,8 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO_ROOT, "scripts"))
 
 
+# 用途：构造含两个 31 日缺口的 240 日偏移（模拟真实序列）。
+# 参数：无输入；输出 偏移数组。
 def gapped_offsets():
     """240 compact days with two 31-day gaps (real-series shape)."""
     return (
@@ -48,6 +50,8 @@ def gapped_offsets():
     )
 
 
+# 用途：独立计算期望季节通道（交叉验证）。
+# 参数：输入 dataset、ordinal；输出 (sin, cos)。
 def _seasonal_expected(dataset, ordinal):
     from datetime import date
     decoded = dataset._date_for_ordinal(ordinal)
@@ -62,6 +66,8 @@ def _seasonal_expected(dataset, ordinal):
 
 
 class ManifestGapWindowTests(OSTIATestCase):
+    # 用途：每个测试前的夹具准备。
+    # 参数：无输入；输出 无。
     def setUp(self):
         super().setUp()
         self.h5_path = make_synthetic_h5(
@@ -87,6 +93,8 @@ class ManifestGapWindowTests(OSTIATestCase):
             data_manifest=self.manifest_path,
         )
 
+    # 用途：验证跨缺口窗口被过滤。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_windows_filtered_around_gaps(self):
         offsets = self.offsets
         valid = self.dataset.valid_start_days
@@ -116,6 +124,8 @@ class ManifestGapWindowTests(OSTIATestCase):
             len(valid) * self.dataset.samples_per_day,
         )
 
+    # 用途：验证季节相位用真实日偏移、无漂移。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_season_uses_true_day_offsets_no_drift(self):
         # Sequence 79 starts at compact day 100 whose true offset is
         # 131; t0 = compact 106 -> true 137.  Using the compact index
@@ -143,6 +153,8 @@ class ManifestGapWindowTests(OSTIATestCase):
         )
         self.assertNotEqual(decoded, compact_wrong)
 
+    # 用途：验证全部窗口的真实日偏移连续。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_all_windows_have_consecutive_true_offsets(self):
         offsets = np.asarray(self.offsets, dtype=np.int64)
         dataset = self.dataset
@@ -153,6 +165,8 @@ class ManifestGapWindowTests(OSTIATestCase):
                 window == window[0] + np.arange(22)
             ), f"sequence {sequence} (d0={d0}) crosses a gap")
 
+    # 用途：验证 manifest 身份事实（SHA、天数、偏移）。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_manifest_identity_facts(self):
         dataset = self.dataset
         self.assertEqual(dataset.time_axis_summary["source"],
@@ -181,6 +195,8 @@ class ManifestGapWindowTests(OSTIATestCase):
         self.assertEqual(manifest["h5"]["time_sha256"],
                          compact_time_sha256(self.h5_path))
 
+    # 用途：验证 manifest 天数不一致时失败。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_manifest_n_days_mismatch_fails(self):
         manifest = load_data_manifest(self.manifest_path)
         manifest["n_days"] = 239
@@ -199,6 +215,8 @@ class ManifestGapWindowTests(OSTIATestCase):
                 data_manifest=bad_path,
             )
 
+    # 用途：验证 manifest 时间轴 SHA 不一致时失败。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_manifest_time_sha_mismatch_fails(self):
         manifest = load_data_manifest(self.manifest_path)
         manifest["h5"]["time_sha256"] = "0" * 64
@@ -213,6 +231,8 @@ class ManifestGapWindowTests(OSTIATestCase):
                 data_manifest=bad_path,
             )
 
+    # 用途：验证同形状但错位映射违反契约。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_same_shape_shifted_mapping_fails_contract(self):
         shifted_path = self.tmp_path("shifted.json")
         shifted = [value + 1 for value in self.offsets]
@@ -241,6 +261,8 @@ class ManifestGapWindowTests(OSTIATestCase):
                 other, model_config
             )
 
+    # 用途：验证旧模式对齐到同一窗口集合。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_manifest_aligns_legacy_mode_to_same_windows(self):
         legacy = OSTIADailyDataset(
             h5_path=self.h5_path,
@@ -269,6 +291,8 @@ class ManifestGapWindowTests(OSTIATestCase):
             self.dataset[index]["target"].numpy(),
         ))
 
+    # 用途：验证旧 checkpoint 绑定 manifest 身份。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_legacy_checkpoint_binds_manifest_identity(self):
         legacy = OSTIADailyDataset(
             h5_path=self.h5_path,
@@ -305,6 +329,8 @@ class ManifestGapWindowTests(OSTIATestCase):
         with self.assertRaisesRegex(ValueError, "time_axis_summary"):
             verify_checkpoint_data_contract(shifted, model_config)
 
+    # 用途：验证身份一致时 manifest 模式的季节与属性模式一致。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_manifest_mode_season_matches_attrs_mode_when_identity(self):
         # On a file with provable HDF5 time metadata and an identity
         # manifest (no gaps) both construction paths must produce
@@ -347,6 +373,8 @@ class ManifestGapWindowTests(OSTIATestCase):
 
 
 class PerRowCoordinateTests(OSTIATestCase):
+    # 用途：每个测试前的夹具准备。
+    # 参数：无输入；输出 无。
     def setUp(self):
         super().setUp()
         self.h5_path = make_synthetic_h5(
@@ -364,6 +392,8 @@ class PerRowCoordinateTests(OSTIATestCase):
             condition_mode="sst_mask_geo_season",
         )
 
+    # 用途：取第 0 日的坐标轴快照。
+    # 参数：无输入；输出 (lat, lon)。
     def _day0_axes(self):
         with h5py.File(self.h5_path, "r") as file:
             lat_axes = np.stack([
@@ -378,6 +408,8 @@ class PerRowCoordinateTests(OSTIATestCase):
             ])
         return lat_axes, lon_axes
 
+    # 用途：验证逐行坐标布局被检测并汇总。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_per_row_layout_detected_and_summarised(self):
         summary = self.dataset.geospatial_summary
         self.assertEqual(
@@ -438,6 +470,8 @@ class PerRowCoordinateTests(OSTIATestCase):
             "full_grid_1d_row_aligned",
         )
 
+    # 用途：验证静态通道与每 patch 坐标轴一致。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_static_channels_match_per_patch_axes(self):
         lat_axes, lon_axes = self._day0_axes()
         dataset = self.dataset
@@ -481,6 +515,8 @@ class PerRowCoordinateTests(OSTIATestCase):
             dataset[1]["condition"].numpy()[8],
         ))
 
+    # 用途：验证 SST 前缀与旧模式一致。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_sst_prefix_matches_legacy_mode(self):
         legacy = OSTIADailyDataset(
             h5_path=self.h5_path,
@@ -497,6 +533,8 @@ class PerRowCoordinateTests(OSTIATestCase):
                 legacy[index]["target"].numpy(),
             ))
 
+    # 用途：验证同形状坐标变化违反契约。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_coordinate_change_same_shape_fails_contract(self):
         other_path = make_synthetic_h5(
             self.tmp_path("shifted_patches.h5"),
@@ -580,6 +618,8 @@ class PerRowCoordinateTests(OSTIATestCase):
 
 
 class NetcdfAuditManifestRoundtripTests(OSTIATestCase):
+    # 用途：写上游 NetCDF 测试文件。
+    # 参数：输入 path、n_days、offsets、units；输出 无。
     def _write_upstream_netcdf(self, path, n_days, offsets,
                                units="days since 2019-01-01"):
         import netCDF4
@@ -611,6 +651,8 @@ class NetcdfAuditManifestRoundtripTests(OSTIATestCase):
         finally:
             dataset.close()
 
+    # 用途：验证审计生成的 manifest 能被数据集消费。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_audit_builds_manifest_consumed_by_dataset(self):
         import audit_ostia_h5 as audit
         offsets = gapped_offsets()

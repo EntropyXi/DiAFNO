@@ -124,6 +124,8 @@ STAGE_PROTOCOL = {
 }
 
 
+# 用途：拒绝向已存在且非空的目录启动（绝不覆盖旧结果）。
+# 参数：输入 path（阶段目录）；输出 无（非空抛 RuntimeError）。
 def assert_directory_available(path):
     """Refuse to start into an existing non-empty directory.
 
@@ -144,6 +146,8 @@ def assert_directory_available(path):
         )
 
 
+# 用途：无 CUDA 环境时 fail-fast。
+# 参数：无输入；输出 无。
 def require_cuda():
     import torch
     if not torch.cuda.is_available():
@@ -154,6 +158,8 @@ def require_cuda():
         )
 
 
+# 用途：由每 epoch 优化步数反推样本数。
+# 参数：输入 steps/gpus/batch_per_gpu/gradient_accumulation；输出 每 epoch 样本数。
 def samples_per_epoch_for_steps(
         steps,
         gpus,
@@ -171,6 +177,8 @@ def samples_per_epoch_for_steps(
     )
 
 
+# 用途：尽力获取当前检出的分支与提交 SHA。
+# 参数：输入 repo_root（仓库根）；输出 (branch, sha)。
 def git_revision(repo_root=None):
     """Best-effort (branch, commit-sha) of the checked-out code."""
     root = repo_root or os.path.dirname(
@@ -196,6 +204,8 @@ def git_revision(repo_root=None):
         return {"branch": None, "commit": None, "error": str(error)}
 
 
+# 用途：执行子进程命令并记录描述。
+# 参数：输入 command（命令列表）、description（描述）、cwd/env（工作目录与环境）；输出 无（失败抛异常）。
 def run_command(command, description, cwd=None, env=None):
     print(f"[ablation] {description}")
     print("[ablation] " + " ".join(str(part) for part in command))
@@ -212,6 +222,8 @@ def run_command(command, description, cwd=None, env=None):
     return completed
 
 
+# 用途：硬门槛：验证 JSON 必须可解析且指标有限。
+# 参数：输入 path（JSON 路径）；输出 无（违规抛异常）。
 def check_json_result_finite(path):
     """Hard gate: parsed validation JSON must be finite and complete."""
     import json

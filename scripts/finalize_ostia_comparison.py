@@ -18,6 +18,8 @@ from diafno.evaluation.method_comparison import write_markdown
 from scripts.compare_ostia_methods import sha256
 
 
+# 用途：按有效像素占比与 skill 选出代表性展示区域。
+# 参数：输入 indices/counts、main_sse/persistence_sse、pixels、ocean_min/ocean_max；输出 选中的样本索引。
 def choose_region(indices, counts, main_sse, persistence_sse, pixels, ocean_min=0.4, ocean_max=0.9):
     counts, main_sse, persistence_sse = map(np.asarray, (counts, main_sse, persistence_sse))
     if counts.shape != main_sse.shape or counts.shape != persistence_sse.shape or counts.ndim != 2 or counts.shape[0] != len(indices):
@@ -40,6 +42,8 @@ def choose_region(indices, counts, main_sse, persistence_sse, pixels, ocean_min=
     return {"selected": selected, "candidates": records, "criterion": {"valid_ocean_fraction_range": [ocean_min, ocean_max], "prefer_positive_mse_skill": True, "ranking": "lowest DiAFNO overall RMSE; dataset index tie-break", "fallback": "if no positive-skill eligible sample, lowest RMSE among eligible samples"}, "purpose": "illustrative case selected after evaluation; aggregate tables unchanged; not random case sampling"}
 
 
+# 用途：入口：从累计量中选定单区域并生成最终展示产物。
+# 参数：无输入（读命令行）；输出 无。
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--evaluation-dir", required=True)

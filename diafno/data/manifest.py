@@ -46,6 +46,8 @@ _DAYS_SINCE_PATTERN = re.compile(
 )
 
 
+# 用途：真实日偏移序列的规范 SHA256。
+# 参数：输入 day_offsets（日偏移数组）；输出 十六进制摘要。
 def day_offset_sha256(day_offsets):
     """Canonical sha256 of the true daily offsets."""
     offsets = np.asarray(day_offsets, dtype=np.int64)
@@ -53,6 +55,8 @@ def day_offset_sha256(day_offsets):
     return hashlib.sha256(canonical.tobytes()).hexdigest()
 
 
+# 用途：整个 manifest 载荷的确定性身份摘要。
+# 参数：输入 payload（manifest dict）；输出 十六进制摘要。
 def canonical_manifest_sha256(payload):
     """Deterministic identity of a whole manifest payload.
 
@@ -70,6 +74,8 @@ def canonical_manifest_sha256(payload):
     ).hexdigest()
 
 
+# 用途：解析 'days since YYYY-MM-DD' 单位文本为参考日期。
+# 参数：输入 units_text（单位文本）；输出 (年, 月, 日)。
 def parse_days_since_units(units_text):
     """Return (year, month, day) for 'days since YYYY-MM-DD...'."""
     if not isinstance(units_text, str):
@@ -87,6 +93,8 @@ def parse_days_since_units(units_text):
     return tuple(int(part) for part in match.groups())
 
 
+# 用途：加载并校验数据清单（fail-closed）。
+# 参数：输入 path（manifest JSON 路径）；输出 manifest 载荷。
 def load_data_manifest(path):
     """Load and validate a data manifest (fail closed)."""
     if not isinstance(path, str) or not path:

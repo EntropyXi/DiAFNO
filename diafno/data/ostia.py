@@ -35,6 +35,8 @@ PROVENANCE_FIELDS = (
 )
 
 
+# 用途：坐标向量的确定性指纹（绑定坐标值）。
+# 参数：输入 values（坐标数组）；输出 十六进制摘要。
 def coordinate_sha256(values):
     """Deterministic fingerprint of a coordinate vector.
 
@@ -51,6 +53,8 @@ def coordinate_sha256(values):
 _coordinate_sha256 = coordinate_sha256
 
 
+# 用途：把数据集证明的事实（时间轴、坐标、清单身份）持久化到模型配置。
+# 参数：输入 model_config（模型配置）、dataset（数据集）；输出 无。
 def copy_dataset_provenance(model_config, dataset):
     """Persist the dataset-proven dataset facts onto a model config.
 
@@ -63,6 +67,8 @@ def copy_dataset_provenance(model_config, dataset):
     return model_config
 
 
+# 用途：h5py 属性标量的尽力文本解码。
+# 参数：输入 value（属性值）；输出 str。
 def _h5_text(value):
     """Best-effort decode of an h5py attribute scalar into str or None."""
     if value is None:
@@ -82,6 +88,8 @@ def _h5_text(value):
     return str(value)
 
 
+# 用途：拒绝在不同数据契约下进行验证/推理（fail-closed）。
+# 参数：输入 dataset（数据集）、model_config（来自 checkpoint 的配置）；输出 无（不一致抛异常）。
 def verify_checkpoint_data_contract(dataset, model_config):
     """Reject validation/inference under a different data contract.
 
@@ -156,6 +164,8 @@ class OSTIADailyDataset(Dataset):
     # training runs on the server HDF5; anything else fails closed.
     _supported_latlon_ndim = 1
 
+    # 用途：构造数据集：校验参数、探测 HDF5、核对数据清单并解析地理/季节几何。
+    # 参数：输入 h5_path、split、input_days/output_days、condition_mode、data_manifest（真实日清单，可选）；输出 无。
     def __init__(
             self,
             h5_path,
@@ -249,6 +259,8 @@ class OSTIADailyDataset(Dataset):
             "source": "training_split_sample"
         }
 
+    # 用途：只读校验 HDF5 形状与时间轴，推断 samples_per_day、总天数与 split 窗口。
+    # 参数：无输入；输出 无（写入实例属性）。
     def _inspect_file(self):
         if not os.path.isfile(self.h5_path):
             raise FileNotFoundError(self.h5_path)
@@ -342,6 +354,8 @@ class OSTIADailyDataset(Dataset):
     # Data-manifest identity and real-day window mapping
     # ------------------------------------------------------------------
 
+    # 用途：紧凑 HDF5 时间轴的规范 SHA256。
+    # 参数：无输入；输出 十六进制摘要。
     def _compact_time_sha256(self):
         """Canonical sha256 of the compact HDF5 time axis.
 
@@ -361,6 +375,8 @@ class OSTIADailyDataset(Dataset):
             )
         return digest.hexdigest()
 
+    # 用途：数据清单与本 HDF5 的 fail-closed 身份核对（天数、时间轴摘要、坐标）。
+    # 参数：无输入；输出 无（不一致抛异常）。
     def _validate_manifest_identity(self):
         """Fail-closed check of the manifest against this HDF5."""
         manifest = self._manifest
@@ -403,6 +419,8 @@ class OSTIADailyDataset(Dataset):
                     f"{recorded_time_sha} vs actual {actual_time_sha}"
                 )
 
+    # 用途：计算可用作 22 日预报窗口的序列起点序数（剔除跨时间缺口窗口）。
+    # 参数：无输入；输出 合法起点序数数组。
     def _build_valid_windows(self):
         """Sequence-start ordinals usable as 22-day forecast windows.
 
@@ -447,10 +465,14 @@ class OSTIADailyDataset(Dataset):
         self.valid_start_days = valid
         self.sequences_per_window = len(valid)
 
+    # 用途：由序列序数换算实际起始日（考虑缺口剔除）。
+    # 参数：输入 sequence_index（序列序号）；输出 起始日。
     def _valid_start_day(self, sequence_index):
         return self.valid_start_days[int(sequence_index)]
 
     @staticmethod
+    # 用途：合成有效海洋像素布尔阵（mask 位、有限性、物理范围）。
+    # 参数：输入 sst、mask；输出 bool 数组。
     def _valid_ocean(sst, mask):
         return (
             ((mask.astype(np.uint8) & 2) == 0)
@@ -459,6 +481,8 @@ class OSTIADailyDataset(Dataset):
             & (sst < 350.0)
         )
 
+    # 用途：确定标准化统计量：优先读属性，否则 train 段抽样估计。
+    # 参数：无输入；输出 (sst_mean, sst_std)。
     def _load_or_estimate_normalization(self):
         if (
             self._file_sst_mean is not None
@@ -534,6 +558,8 @@ class OSTIADailyDataset(Dataset):
     # 'sst_mask_geo_season'; legacy modes never call these paths).
     # ------------------------------------------------------------------
 
+    # 用途：读取单个属性（数据集属性优先于文件属性）。
+    # 参数：输入 container（属性容器）、key（键）、fallback_to_file（是否回退文件属性）；输出 str。
     def _attr_text(self, container, key, fallback_to_file=True):
         """Read one attribute (dataset attrs win over file attrs)."""
         value = container.get(key)
@@ -545,6 +571,8 @@ class OSTIADailyDataset(Dataset):
             value = self._file_attrs.get(key)
         return _h5_text(value)
 
+    # 用途：fail-closed 解码 Gregorian 日期语义（供季节编码；缺元数据即报错）。
+    # 参数：无输入；输出 无（解析结果写入实例属性）。
     def _resolve_time_semantics(self):
         """Fail-closed Gregorian date decoding for the seasonal phase.
 
@@ -643,6 +671,8 @@ class OSTIADailyDataset(Dataset):
         self.calendar_encoding = resolved_calendar
         self._build_time_axis_summary(source="h5_attrs")
 
+    # 用途：构造真实日时间轴的可比较摘要（持久化到 sidecar）。
+    # 参数：输入 source（摘要来源标记）；输出 摘要 dict。
     def _build_time_axis_summary(self, source):
         """Persisted, comparable summary of the real-day time axis.
 
@@ -680,6 +710,8 @@ class OSTIADailyDataset(Dataset):
             "gaps": gaps,
         }
 
+    # 用途：绝对日时间值的日历日期。
+    # 参数：输入 time_value（绝对时间值）；输出 date。
     def _date_for_time(self, time_value):
         """Calendar date of an absolute daily time value."""
         if self._ref_date is None:
@@ -697,6 +729,8 @@ class OSTIADailyDataset(Dataset):
             + timedelta(days=int(time_value) - int(self.first_time))
         )
 
+    # 用途：紧凑日序数的日历日期。
+    # 参数：输入 ordinal（日序数）；输出 date。
     def _date_for_ordinal(self, ordinal):
         """Calendar date of a compact day ordinal.
 
@@ -716,6 +750,8 @@ class OSTIADailyDataset(Dataset):
             )
         return self._ref_date + timedelta(days=ordinal)
 
+    # 用途：数据清单证明的坐标单位（如无则 None）。
+    # 参数：输入 name（'lat'/'lon'）；输出 单位字符串或 None。
     def _manifest_coordinate_units(self, name):
         """Coordinate units proven by the data manifest, if any."""
         if self._manifest is None:
@@ -727,6 +763,8 @@ class OSTIADailyDataset(Dataset):
         return _h5_text(units)
 
     @staticmethod
+    # 用途：把角度单位字符串解析为 degrees/radians。
+    # 参数：输入 text（单位文本）、name（名称，报错用）；输出 单位归一化字符串。
     def _parse_angular_units(text, name):
         """Resolve an angular unit string to 'degrees'/'radians'."""
         if text is None:
@@ -741,6 +779,8 @@ class OSTIADailyDataset(Dataset):
             "accepts degree or radian units only"
         )
 
+    # 用途：按已证明的坐标布局分发到 1-D 全网格或逐行解析。
+    # 参数：无输入；输出 无（解析结果写入实例属性）。
     def _resolve_geospatial(self):
         """Dispatch to the proven coordinate layouts.
 
@@ -794,6 +834,8 @@ class OSTIADailyDataset(Dataset):
             "per-row patch grids [num_rows, img_h, img_w]"
         )
 
+    # 用途：角度值范围检查并检测经度约定。
+    # 参数：输入 lat_values/lon_values、units（单位）；输出 无（非法抛异常）。
     def _resolve_angular_domain(
             self,
             lat_values,
@@ -839,6 +881,8 @@ class OSTIADailyDataset(Dataset):
         )
         return float(np.pi / 180.0), convention
 
+    # 用途：返回经度约定（-180..180 或 0..360）或 fail-closed。
+    # 参数：输入 lon_values、half_range/full_range（阈值）、units；输出 约定字符串。
     def _detect_longitude_convention(self, lon_values, half_range,
                                      full_range, units):
         """Return the longitude convention or fail closed.
@@ -868,6 +912,8 @@ class OSTIADailyDataset(Dataset):
             "units mismatch"
         )
 
+    # 用途：解析全网格 1-D 经纬度（所有行所有日共享）。
+    # 参数：无输入；输出 无（sin/cos 通道缓存写入实例）。
     def _resolve_geospatial_1d(self):
         """Full-grid 1-D lat/lon (shared by every row of every day)."""
         h5_file = self._get_file()
@@ -968,6 +1014,8 @@ class OSTIADailyDataset(Dataset):
             "digest_spec": "sha256_le_f8_raw_order",
         }
 
+    # 用途：读取一行坐标网格（有界读取，约 1.6 MB）。
+    # 参数：输入 name（'lat'/'lon'）、row_index（行号）；输出 该行坐标数组。
     def _coord_row(self, name, row_index):
         """Read one coordinate grid row (bounded, ~1.6 MB on 448^2)."""
         return np.asarray(
@@ -975,6 +1023,8 @@ class OSTIADailyDataset(Dataset):
             dtype=np.float64,
         )
 
+    # 用途：解析每空间块 patch 网格布局（跨日重复）。
+    # 参数：无输入；输出 无（缓存写入实例）。
     def _resolve_geospatial_per_row(self):
         """Per-spatial-index patch grids repeated across days.
 
@@ -1170,6 +1220,8 @@ class OSTIADailyDataset(Dataset):
         }
         del h5_file
 
+    # 用途：单样本静态 [4,H,W] sin/cos 经纬度通道。
+    # 参数：输入 spatial_index（空间块号）；输出 [4,H,W] 数组。
     def _geo_grid_channels(self, spatial_index):
         """Static [4,H,W] sin/cos channels of one sample's grid."""
         if self._coordinate_layout == "full_grid_1d_row_aligned":
@@ -1204,6 +1256,8 @@ class OSTIADailyDataset(Dataset):
             axis=0,
         ).astype(np.float32, copy=False)
 
+    # 用途：紧凑日序数对应日期的 (sin_doy, cos_doy)。
+    # 参数：输入 ordinal（日序数）；输出 二元组。
     def _seasonal_pair_for_ordinal(self, ordinal):
         """(sin_doy, cos_doy) of the calendar date of a compact day.
 
@@ -1223,6 +1277,8 @@ class OSTIADailyDataset(Dataset):
         angle = 2.0 * np.pi * (day_of_year - 1) / year_length
         return float(np.sin(angle)), float(np.cos(angle))
 
+    # 用途：解析静态几何（坐标布局与季节参数）并缓存。
+    # 参数：无输入；输出 无。
     def _resolve_static_geometry(self):
         if self.condition_mode != "sst_mask_geo_season":
             return
@@ -1233,6 +1289,8 @@ class OSTIADailyDataset(Dataset):
     # Sample loading
     # ------------------------------------------------------------------
 
+    # 用途：按进程惰性打开 HDF5 句柄。
+    # 参数：无输入；输出 h5py.File。
     def _get_file(self):
         pid = os.getpid()
         if (
@@ -1249,12 +1307,16 @@ class OSTIADailyDataset(Dataset):
             self._h5_pid = pid
         return self._h5_file
 
+    # 用途：返回本 split 的合法样本总数。
+    # 参数：无输入；输出 int。
     def __len__(self):
         return (
             self.sequences_per_window
             * self.samples_per_day
         )
 
+    # 用途：负索引折正并做越界检查。
+    # 参数：输入 index；输出 规范化索引。
     def _normalize_index(self, index):
         if index < 0:
             index += len(self)
@@ -1263,6 +1325,8 @@ class OSTIADailyDataset(Dataset):
         return index
 
     @staticmethod
+    # 用途：把升序索引切分为连续段列表。
+    # 参数：输入 indices；输出 [(start, end), ...]。
     def _contiguous_runs(indices):
         if indices.size == 0:
             return []
@@ -1281,6 +1345,8 @@ class OSTIADailyDataset(Dataset):
             for start, end in zip(starts, ends)
         ]
 
+    # 用途：构造单样本条件通道 [C,H,W]：SST 历史+mask（+geo sin/cos+季节对）。
+    # 参数：输入 input_sst（7 日历史）、t0_mask（末输入日 mask）、doy_channels（季节对）、spatial_index（空间块号）；输出 条件数组。
     def _condition_channels(
             self,
             input_sst,
@@ -1324,6 +1390,8 @@ class OSTIADailyDataset(Dataset):
             axis=0
         )
 
+    # 用途：读取同一时间窗口多个空间块并构造 22 日样本（条件含 geo/季节）。
+    # 参数：输入 sequence_index、spatial_indices；输出 样本 dict 列表。
     def _load_sequence_batch(
             self,
             sequence_index,
@@ -1469,6 +1537,8 @@ class OSTIADailyDataset(Dataset):
             )
         return samples
 
+    # 用途：批量取样入口：按序列分组合并读取。
+    # 参数：输入 indices；输出 样本 dict 列表。
     def __getitems__(self, indices):
         indices = np.asarray(
             [
@@ -1501,12 +1571,18 @@ class OSTIADailyDataset(Dataset):
                 samples[int(position)] = sample
         return samples
 
+    # 用途：单样本入口，内部委托 __getitems__。
+    # 参数：输入 index；输出 样本 dict。
     def __getitem__(self, index):
         return self.__getitems__([index])[0]
 
+    # 用途：模型空间 SST 反标准化回开尔文。
+    # 参数：输入 value；输出 反标准化值。
     def inverse_transform_sst(self, value):
         return value * self.sst_std + self.sst_mean
 
+    # 用途：关闭 HDF5 句柄。
+    # 参数：无输入；输出 无。
     def close(self):
         h5_file = getattr(self, "_h5_file", None)
         if h5_file is not None:
@@ -1514,11 +1590,15 @@ class OSTIADailyDataset(Dataset):
         self._h5_file = None
         self._h5_pid = None
 
+    # 用途：pickle 前剔除文件句柄。
+    # 参数：无输入；输出 状态字典。
     def __getstate__(self):
         state = self.__dict__.copy()
         state["_h5_file"] = None
         state["_h5_pid"] = None
         return state
 
+    # 用途：对象销毁时关闭句柄。
+    # 参数：无输入；输出 无。
     def __del__(self):
         self.close()

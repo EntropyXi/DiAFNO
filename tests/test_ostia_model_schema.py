@@ -50,6 +50,8 @@ from .ostia_test_h5 import (
 )
 
 
+# 用途：构造小尺寸测试模型配置。
+# 参数：输入 mode/patch_size/num_blocks/implicit_layer 等覆盖；输出 OSTIAModelConfig。
 def tiny_model_config(
         mode="sst_mask",
         patch_size=(2, 2, 1),
@@ -88,20 +90,30 @@ def tiny_model_config(
 
 
 class FakeSampler:
+    # 用途：测试辅助函数。
+    # 参数：见函数签名（测试夹具辅助）；输出 测试用构造对象。
     def __init__(self):
         self.epochs = []
 
+    # 用途：测试辅助函数。
+    # 参数：见函数签名（测试夹具辅助）；输出 测试用构造对象。
     def set_epoch(self, epoch):
         self.epochs.append(epoch)
 
 
 class FakeLoader:
+    # 用途：测试辅助函数。
+    # 参数：见函数签名（测试夹具辅助）；输出 测试用构造对象。
     def __init__(self, batches):
         self.batches = batches
 
+    # 用途：测试辅助函数。
+    # 参数：见函数签名（测试夹具辅助）；输出 测试用构造对象。
     def __iter__(self):
         return iter(self.batches)
 
+    # 用途：测试辅助函数。
+    # 参数：见函数签名（测试夹具辅助）；输出 测试用构造对象。
     def __len__(self):
         return len(self.batches)
 
@@ -113,6 +125,8 @@ class DatasetStub:
     }
 
 
+# 用途：构建测试用训练器实例。
+# 参数：输入 config、tmp_dir、loader_len；输出 训练器。
 def build_trainer(config, tmp_dir, loader_len=1):
     config.output_dir = tmp_dir
     trainer = OSTIATrainer.__new__(OSTIATrainer)
@@ -141,6 +155,8 @@ def build_trainer(config, tmp_dir, loader_len=1):
 
 
 class ConditionSchemaTableTests(unittest.TestCase):
+    # 用途：验证各模式的通道数。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_mode_channel_counts(self):
         self.assertEqual(condition_chans("sst", 7), 7)
         self.assertEqual(condition_chans("sst_mask", 7), 8)
@@ -151,6 +167,8 @@ class ConditionSchemaTableTests(unittest.TestCase):
             condition_schema_version_for("sst_mask_geo_season"), 2
         )
 
+    # 用途：验证通道固定顺序与命名。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_fixed_order_and_names(self):
         names = condition_channel_names("sst_mask_geo_season", 7)
         self.assertEqual(
@@ -168,6 +186,8 @@ class ConditionSchemaTableTests(unittest.TestCase):
             ),
         )
 
+    # 用途：验证通道名随 input_days 伸缩。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_names_scale_with_input_days(self):
         self.assertEqual(
             condition_channel_names("sst_mask", 3),
@@ -175,12 +195,16 @@ class ConditionSchemaTableTests(unittest.TestCase):
              VALID_MASK_CHANNEL_NAME),
         )
 
+    # 用途：验证未知模式被拒绝。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_unknown_mode_rejected(self):
         with self.assertRaisesRegex(ValueError, "condition_mode"):
             condition_channel_names("seasonal", 7)
 
 
 class ModelConditionSchemaTests(unittest.TestCase):
+    # 用途：验证旧默认配置通过 schema 校验。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_legacy_default_config_validates(self):
         config = OSTIAModelConfig()
         config.validate_condition_schema()
@@ -188,6 +212,8 @@ class ModelConditionSchemaTests(unittest.TestCase):
         self.assertEqual(config.condition_mode, "sst_mask")
         self.assertEqual(config.condition_schema_version, 1)
 
+    # 用途：验证 adopt 后 schema 规范化。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_adopt_makes_schema_canonical(self):
         config = OSTIAModelConfig()
         config.adopt_condition_mode("sst_mask_geo_season")
@@ -201,6 +227,8 @@ class ModelConditionSchemaTests(unittest.TestCase):
         config.adopt_condition_mode("sst_mask")
         self.assertEqual(config.cond_chans, 8)
 
+    # 用途：验证手写 cond_chans 不一致时失败。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_hand_written_cond_chans_mismatch_fails(self):
         config = OSTIAModelConfig(
             condition_mode="sst_mask_geo_season",
@@ -210,6 +238,8 @@ class ModelConditionSchemaTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "cond_chans=14"):
             config.validate_condition_schema()
 
+    # 用途：验证 schema 版本不一致时失败。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_schema_version_mismatch_fails(self):
         config = OSTIAModelConfig(
             condition_mode="sst_mask_geo_season",
@@ -219,6 +249,8 @@ class ModelConditionSchemaTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "schema_version"):
             config.validate_condition_schema()
 
+    # 用途：验证手改通道名时失败。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_hand_edited_channel_names_fail(self):
         config = OSTIAModelConfig(
             condition_mode="sst_mask_geo_season",
@@ -232,6 +264,8 @@ class ModelConditionSchemaTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "channel_names"):
             config.validate_condition_schema()
 
+    # 用途：验证 8 通道 geo 配置被 build_model 拒绝。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_build_model_rejects_8_channel_geo_config(self):
         config = OSTIAModelConfig(
             condition_mode="sst_mask_geo_season",
@@ -240,6 +274,8 @@ class ModelConditionSchemaTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "cond_chans=14"):
             config.build_model("cpu")
 
+    # 用途：验证新旧两种配置的 checkpoint 往返。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_checkpoint_roundtrip_legacy_and_new(self):
         legacy_payload = {
             "input_days": 7,
@@ -283,6 +319,8 @@ class ModelConditionSchemaTests(unittest.TestCase):
             tuple(payload["condition_channel_names"]),
         )
 
+    # 用途：验证条件模式解析 fail-closed。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_resolve_condition_mode_fail_closed(self):
         self.assertEqual(
             resolve_condition_mode(None, "sst_mask_geo_season", "x"),
@@ -301,6 +339,8 @@ class ModelConditionSchemaTests(unittest.TestCase):
 
 
 class FourteenChannelForwardBackwardTests(OSTIATestCase):
+    # 用途：断言一个训练步的损失与梯度有限。
+    # 参数：输入 config；输出 无。
     def _assert_finite_training_step(self, config):
         device = torch.device("cpu")
         model = config.build_model(device)
@@ -342,6 +382,8 @@ class FourteenChannelForwardBackwardTests(OSTIATestCase):
         optimizer.step()
         return model
 
+    # 用途：构造 14 通道宽泛测试配置。
+    # 参数：输入 model_type、target_scaling、sigma_data；输出 OSTIAModelConfig。
     def _geo_wide_config(self, model_type, target_scaling,
                          sigma_data=1.0):
         config = OSTIAModelConfig(
@@ -378,17 +420,23 @@ class FourteenChannelForwardBackwardTests(OSTIATestCase):
         config.validate_condition_schema()
         return config
 
+    # 用途：验证 14 通道确定性模型前向反向。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_deterministic_14_channel_forward_backward(self):
         self._assert_finite_training_step(self._geo_wide_config(
             "deterministic", "raw"
         ))
 
+    # 用途：验证 14 通道扩散模型前向反向。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_diffusion_14_channel_forward_backward(self):
         config = self._geo_wide_config(
             "diffusion", "raw", sigma_data=0.15
         )
         self._assert_finite_training_step(config)
 
+    # 用途：验证 14 通道 centered 扩散前向反向。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_centered_diffusion_14_channel_forward_backward(self):
         config = self._geo_wide_config(
             "centered_diffusion",
@@ -397,6 +445,8 @@ class FourteenChannelForwardBackwardTests(OSTIATestCase):
         )
         self._assert_finite_training_step(config)
 
+    # 用途：验证旧 8 通道路径仍可训练。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_legacy_8_channel_still_trains(self):
         config = tiny_model_config(mode="sst_mask")
         self.assertEqual(config.cond_chans, 4)
@@ -405,6 +455,8 @@ class FourteenChannelForwardBackwardTests(OSTIATestCase):
 
 
 class CheckpointContractTests(OSTIATestCase):
+    # 用途：构造测试用训练配置。
+    # 参数：输入 mode；输出 配置对象。
     def _trainer_config(self, mode="sst_mask", **kwargs):
         config = OSTIATrainingConfig()
         config.use_amp = False
@@ -412,6 +464,8 @@ class CheckpointContractTests(OSTIATestCase):
         config.model = tiny_model_config(mode=mode, **kwargs)
         return config
 
+    # 用途：保存测试用 checkpoint。
+    # 参数：输入 config、name、epoch、global_step；输出 路径。
     def _save_checkpoint(self, config, name="latest.pth",
                          epoch=3, global_step=250):
         trainer = build_trainer(config, self._tmp)
@@ -434,6 +488,8 @@ class CheckpointContractTests(OSTIATestCase):
         )
         return path
 
+    # 用途：验证 checkpoint+sidecar 持久化条件 schema。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_checkpoint_and_sidecar_persist_condition_schema(self):
         config = self._trainer_config(mode="sst_mask_geo_season")
         config.model.calendar_encoding = "standard"
@@ -480,6 +536,8 @@ class CheckpointContractTests(OSTIATestCase):
             {"resolved_units": "degrees"},
         )
 
+    # 用途：验证 resume 恢复 schema 且步数连续。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_resume_restores_schema_and_step_continuity(self):
         config = self._trainer_config(mode="sst_mask_geo_season")
         path = self._save_checkpoint(
@@ -500,6 +558,8 @@ class CheckpointContractTests(OSTIATestCase):
             trainer.config.model.cond_chans, 10
         )
 
+    # 用途：验证 8 通道 checkpoint 不能续训 14 通道。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_8_channel_checkpoint_cannot_resume_14_channel(self):
         checkpoint_path = self._save_checkpoint(
             self._trainer_config(mode="sst_mask")
@@ -509,6 +569,8 @@ class CheckpointContractTests(OSTIATestCase):
         trainer = build_trainer(current, self._tmp)
         state_dict_calls = []
 
+        # 用途：测试辅助函数。
+        # 参数：见函数签名（测试夹具辅助）；输出 测试用构造对象。
         def spying_load_state_dict(state_dict, strict=True):
             state_dict_calls.append(state_dict)
 
@@ -528,6 +590,8 @@ class CheckpointContractTests(OSTIATestCase):
         # The failure happened before any weights were loaded.
         self.assertEqual(state_dict_calls, [])
 
+    # 用途：验证架构不一致不能续训。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_architecture_mismatch_cannot_resume(self):
         checkpoint_path = self._save_checkpoint(
             self._trainer_config(mode="sst_mask_geo_season",
@@ -551,6 +615,8 @@ class CheckpointContractTests(OSTIATestCase):
                 trainer.runtime.world_size,
             )
 
+    # 用途：验证 implicit 层数不一致不能续训。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_implicit_layer_mismatch_cannot_resume(self):
         checkpoint_path = self._save_checkpoint(
             self._trainer_config(mode="sst_mask_geo_season",
@@ -574,6 +640,8 @@ class CheckpointContractTests(OSTIATestCase):
                 trainer.runtime.world_size,
             )
 
+    # 用途：验证 manifest 拒绝通道与 patch 不匹配。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_manifest_rejects_8_vs_14_and_patch_mismatch(self):
         saved = self._trainer_config(mode="sst_mask")
         current = self._trainer_config(mode="sst_mask_geo_season")
@@ -604,6 +672,8 @@ class CheckpointContractTests(OSTIATestCase):
                 world_size=1,
             )
 
+    # 用途：验证裸 resume 冲突 fail-closed。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_bare_resume_conflict_is_fail_closed(self):
         checkpoint_config = self._trainer_config(
             mode="sst_mask_geo_season"
@@ -631,6 +701,8 @@ class CheckpointContractTests(OSTIATestCase):
         ))
 
 
+    # 用途：验证摘要不一致在载入 state_dict 前失败。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_summary_mismatch_fails_before_state_dict_load(self):
         """Condition-schema provenance is part of the immutable
         semantics: a checkpoint whose geospatial summary differs from
@@ -658,6 +730,8 @@ class CheckpointContractTests(OSTIATestCase):
         trainer = build_trainer(tampered, self._tmp)
         state_dict_calls = []
 
+        # 用途：测试辅助函数。
+        # 参数：见函数签名（测试夹具辅助）；输出 测试用构造对象。
         def spying_load_state_dict(state_dict, strict=True):
             state_dict_calls.append(state_dict)
 
@@ -678,6 +752,8 @@ class CheckpointContractTests(OSTIATestCase):
 
 
 class DataSetupAdoptionTests(OSTIATestCase):
+    # 用途：构造带配置文件的测试配置。
+    # 参数：无输入；输出 (配置, 文件路径)。
     def _config_with_file(self):
         h5_path = make_synthetic_h5(
             self.tmp_path("adopt.h5"),
@@ -702,6 +778,8 @@ class DataSetupAdoptionTests(OSTIATestCase):
         )
         return config
 
+    # 用途：验证数据 setup采纳 schema 与来源信息。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_data_setup_adopts_schema_and_provenance(self):
         config = self._config_with_file()
         runtime = DistributedRuntime()
@@ -726,6 +804,8 @@ class DataSetupAdoptionTests(OSTIATestCase):
 
 
 class ConfigJsonContractTests(OSTIATestCase):
+    # 用途：构造测试用 lead 统计载荷。
+    # 参数：输入 target_chans；输出 载荷 dict。
     def _lead_stats(self, target_chans=15):
         path = os.path.join(self._tmp, "lead_stats.json")
         with open(path, "w", encoding="utf-8") as file:
@@ -748,6 +828,8 @@ class ConfigJsonContractTests(OSTIATestCase):
             }, file)
         return path
 
+    # 用途：验证 A1 配置 JSON 展开为 geo 14 通道模型。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_a1_json_expands_geo_14_channel_model(self):
         stats = self._lead_stats()
         args = build_parser().parse_args(
@@ -777,6 +859,8 @@ class ConfigJsonContractTests(OSTIATestCase):
         config.model.validate_condition_schema()
         self.assertIn("patch_size", config.explicit_resume_fields)
 
+    # 用途：验证 A5 配置 JSON 展开为 implicit=4。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_a5_json_expands_implicit4(self):
         stats = self._lead_stats()
         args = build_parser().parse_args(
@@ -799,18 +883,24 @@ class ConfigJsonContractTests(OSTIATestCase):
         self.assertEqual(config.model.implicit_layer, 4)
         config.model.validate_condition_schema()
 
+    # 用途：验证畸形 patch 尺寸被拒绝。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_malformed_patch_size_rejected(self):
         args = build_parser().parse_args([])
         args.patch_size = [4, 4]
         with self.assertRaisesRegex(ValueError, "3-element"):
             training_config_from_args(args)
 
+    # 用途：验证非正 blocks 被拒绝。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_nonpositive_blocks_rejected(self):
         args = build_parser().parse_args([])
         args.num_blocks = 0
         with self.assertRaisesRegex(ValueError, "num_blocks"):
             training_config_from_args(args)
 
+    # 用途：验证 CLI 架构参数已暴露。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_cli_architecture_flags_exposed(self):
         args = build_parser().parse_args(
             [
@@ -840,6 +930,8 @@ class ConfigJsonContractTests(OSTIATestCase):
             set(bare.explicit_resume_fields)
         )
 
+    # 用途：验证 CLI 架构参数优先于配置 JSON。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_cli_arch_flags_win_over_config_json(self):
         stats = self._lead_stats()
         config_path = os.path.join(
@@ -865,6 +957,8 @@ class ConfigJsonContractTests(OSTIATestCase):
 
 
 class ValidationInferenceContractTests(OSTIATestCase):
+    # 用途：每个测试前的夹具准备。
+    # 参数：无输入；输出 无。
     def setUp(self):
         super().setUp()
         self.h5_path = make_synthetic_h5(
@@ -906,6 +1000,8 @@ class ValidationInferenceContractTests(OSTIATestCase):
             self.checkpoint_path,
         )
 
+    # 用途：验证加载器从 checkpoint 恢复 geo 契约。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_loader_restores_geo_contract_from_checkpoint(self):
         model, model_config, steps, normalization = (
             InferenceModelLoader.load(
@@ -929,6 +1025,8 @@ class ValidationInferenceContractTests(OSTIATestCase):
         )
         verify_checkpoint_data_contract(dataset, model_config)
 
+    # 用途：验证 geo 契约不匹配时 fail-closed。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_geo_contract_mismatch_fails_closed(self):
         model_config = OSTIAModelConfig.from_checkpoint(
             torch.load(
@@ -963,6 +1061,8 @@ class ValidationInferenceContractTests(OSTIATestCase):
         with self.assertRaisesRegex(ValueError, "missing"):
             verify_checkpoint_data_contract(dataset, model_config)
 
+    # 用途：验证旧 checkpoint 在 geo 文件上契约校验为空操作。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_legacy_checkpoint_on_geo_file_contract_is_noop(self):
         dataset = __import__(
             "diafno.data.ostia", fromlist=["OSTIADailyDataset"]
@@ -981,6 +1081,8 @@ class EndToEndGeoSeasonTrainerSmokeTests(OSTIATestCase):
     data setup adopts the schema, the loader builds 14-channel
     conditions and one epoch trains + checkpoints."""
 
+    # 用途：验证 geo HDF5 上的端到端单 epoch 训练。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_trainer_epoch_end_to_end_on_geo_h5(self):
         h5_path = make_synthetic_h5(
             self.tmp_path("e2e.h5"),
@@ -1070,6 +1172,8 @@ class EndToEndGeoSeasonTrainerSmokeTests(OSTIATestCase):
                 trainer.global_step,
             )
 
+    # 用途：验证 Stage1 形态 resume 的 epoch 预算连续性。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_stage1_style_resume_epoch_budget_continuity(self):
         """Resume horizon in the exact stage-1 shape (scaled down).
 
@@ -1089,6 +1193,8 @@ class EndToEndGeoSeasonTrainerSmokeTests(OSTIATestCase):
             first_time=5,
         )
 
+        # 用途：测试辅助函数。
+        # 参数：见函数签名（测试夹具辅助）；输出 测试用构造对象。
         def make_config(output_dir, num_epochs, resume_path=None):
             config = OSTIATrainingConfig()
             config.train_h5_path = h5_path
@@ -1180,6 +1286,8 @@ class ManifestVersionAndCompatibilityTests(OSTIATestCase):
     immutable semantics; v4 sidecars keep validating on the fields
     they actually store."""
 
+    # 用途：构造测试用 geo 配置。
+    # 参数：无输入；输出 OSTIAModelConfig。
     def _geo_config(self):
         config = OSTIATrainingConfig()
         config.condition_mode = "sst_mask_geo_season"
@@ -1204,6 +1312,8 @@ class ManifestVersionAndCompatibilityTests(OSTIATestCase):
         config.model = model
         return config
 
+    # 用途：验证当前 manifest 版本为 5。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_current_manifest_version_is_five(self):
         self.assertEqual(CHECKPOINT_SCHEMA_VERSION, 5)
         manifest = build_semantic_manifest(
@@ -1211,6 +1321,8 @@ class ManifestVersionAndCompatibilityTests(OSTIATestCase):
         )
         self.assertEqual(manifest["schema_version"], 5)
 
+    # 用途：验证不可变 manifest 携带条件 schema。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_manifest_immutable_carries_condition_schema(self):
         manifest = build_semantic_manifest(
             self._geo_config(), world_size=1
@@ -1242,6 +1354,8 @@ class ManifestVersionAndCompatibilityTests(OSTIATestCase):
             "ab" * 32,
         )
 
+    # 用途：验证缺新字段的 v4 sidecar 仍可校验。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_v4_sidecar_without_new_fields_still_validates(self):
         config = OSTIATrainingConfig()
         config.model = tiny_model_config(mode="sst_mask")
@@ -1265,6 +1379,8 @@ class ManifestVersionAndCompatibilityTests(OSTIATestCase):
         )
         self.assertEqual(warnings, [])
 
+    # 用途：验证 v4 sidecar 仍拒绝通道不匹配。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_v4_sidecar_still_rejects_channel_mismatch(self):
         legacy = OSTIATrainingConfig()
         legacy.model = tiny_model_config(mode="sst_mask")
@@ -1287,6 +1403,8 @@ class ManifestVersionAndCompatibilityTests(OSTIATestCase):
                 world_size=1,
             )
 
+    # 用途：验证恢复时条件名转换为元组。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_restore_converts_condition_names_to_tuple(self):
         config = self._geo_config()
         manifest = build_semantic_manifest(config, world_size=1)
@@ -1320,6 +1438,8 @@ class ManifestVersionAndCompatibilityTests(OSTIATestCase):
             for item in notices
         ))
 
+    # 用途：验证新字段显式冲突 fail-closed。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_explicit_conflict_for_new_fields_fails_closed(self):
         config = self._geo_config()
         manifest = build_semantic_manifest(config, world_size=1)
@@ -1344,6 +1464,8 @@ class DataSetupProvenanceCompareTests(OSTIATestCase):
     current HDF5 instead of silently overwriting it (resume) and only
     write provenance on fresh runs."""
 
+    # 用途：构造基础测试配置。
+    # 参数：输入 h5_path、output_dir；输出 配置对象。
     def _base_config(self, h5_path, output_dir):
         config = OSTIATrainingConfig()
         config.train_h5_path = h5_path
@@ -1361,6 +1483,8 @@ class DataSetupProvenanceCompareTests(OSTIATestCase):
         )
         return config
 
+    # 用途：构造两个测试文件路径。
+    # 参数：输入 name_a、name_b；输出 路径对。
     def _files(self, name_a="a.h5", name_b="b.h5"):
         a = make_synthetic_h5(
             self.tmp_path(name_a),
@@ -1382,6 +1506,8 @@ class DataSetupProvenanceCompareTests(OSTIATestCase):
         )
         return a, b
 
+    # 用途：验证换文件后 resume fail-closed。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_resume_with_rotated_file_fails_closed(self):
         file_a, file_b = self._files()
         dataset_a = OSTIADailyDataset(
@@ -1403,6 +1529,8 @@ class DataSetupProvenanceCompareTests(OSTIATestCase):
             dataset_a.geospatial_summary,
         )
 
+    # 用途：验证同文件 resume 通过。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_resume_with_matching_file_passes(self):
         file_a, _ = self._files()
         dataset_a = OSTIADailyDataset(
@@ -1421,6 +1549,8 @@ class DataSetupProvenanceCompareTests(OSTIATestCase):
         )
         self.assertIsNotNone(data.dataset)
 
+    # 用途：验证缺来源信息时 resume fail-closed。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_resume_missing_provenance_fails_closed(self):
         file_a, _ = self._files()
         config = self._base_config(file_a, self.tmp_path("out"))
@@ -1443,6 +1573,8 @@ class DataSetupProvenanceCompareTests(OSTIATestCase):
             ):
             OSTIATrainingData(config, runtime).setup()
 
+    # 用途：验证全新运行写入当前来源信息。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_fresh_run_writes_current_provenance(self):
         file_a, _ = self._files()
         config = self._base_config(file_a, self.tmp_path("out"))
@@ -1462,6 +1594,8 @@ class DataSetupProvenanceCompareTests(OSTIATestCase):
 class GeospatialCoordinateContractTests(OSTIATestCase):
     """Coordinate digests pin lat/lon values, not only units/shapes."""
 
+    # 用途：写绑定坐标的测试 checkpoint。
+    # 参数：输入 h5_path；输出 路径。
     def _write_checkpoint(self, h5_path):
         dataset = OSTIADailyDataset(
             h5_path=h5_path,
@@ -1491,6 +1625,8 @@ class GeospatialCoordinateContractTests(OSTIATestCase):
         )
         return path
 
+    # 用途：验证坐标变化时摘要变化。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_digest_changes_with_coordinates(self):
         file_a = make_synthetic_h5(
             self.tmp_path("a.h5"), total_days=240, height=8,
@@ -1536,6 +1672,8 @@ class GeospatialCoordinateContractTests(OSTIATestCase):
             summary_a["lat_sha256"],
         )
 
+    # 用途：验证坐标变化违反验证契约。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_coordinate_change_fails_validation_contract(self):
         file_a = make_synthetic_h5(
             self.tmp_path("a.h5"), total_days=240, height=8,

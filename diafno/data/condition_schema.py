@@ -54,6 +54,8 @@ LEGACY_MODE = "sst_mask"
 LEGACY_SCHEMA_VERSION = 1
 
 
+# 用途：返回 input_days 个标准化 SST 历史通道的名称。
+# 参数：输入 input_days（输入日数）；输出 通道名元组。
 def sst_channel_names(input_days):
     """Names of the ``input_days`` normalized SST history channels.
 
@@ -72,6 +74,8 @@ def sst_channel_names(input_days):
     return tuple(names)
 
 
+# 用途：返回某条件模式固定的通道顺序表。
+# 参数：输入 condition_mode（条件模式）、input_days（输入日数）；输出 通道名元组。
 def condition_channel_names(condition_mode, input_days):
     """Return the fixed condition channel order for a mode."""
     if condition_mode not in CONDITION_MODES:
@@ -87,11 +91,15 @@ def condition_channel_names(condition_mode, input_days):
     return tuple(names)
 
 
+# 用途：返回某条件模式要求的通道数。
+# 参数：输入 condition_mode、input_days；输出 int 通道数。
 def condition_chans(condition_mode, input_days):
     """Return the condition channel count required by a mode."""
     return len(condition_channel_names(condition_mode, input_days))
 
 
+# 用途：返回某条件模式持久化的 schema 版本号。
+# 参数：输入 condition_mode；输出 int 版本号。
 def condition_schema_version_for(condition_mode):
     """Return the persisted schema version for a condition mode."""
     if condition_mode not in CONDITION_MODES:
@@ -102,6 +110,8 @@ def condition_schema_version_for(condition_mode):
     return CONDITION_SCHEMA_VERSIONS[condition_mode]
 
 
+# 用途：验证/推理时解析数据契约：CLI 与 checkpoint 模式必须一致（fail-closed）。
+# 参数：输入 cli_condition_mode/model_condition_mode、purpose（用途描述）；输出 解析后的条件模式。
 def resolve_condition_mode(cli_condition_mode, model_condition_mode,
                            purpose):
     """Resolve the data contract for validation/inference.

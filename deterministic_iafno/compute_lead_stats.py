@@ -10,11 +10,15 @@ from diafno.data.ostia import OSTIADailyDataset
 
 
 class LeadStatsAccumulator:
+    # 用途：初始化逐 lead 残差累计器（和、平方和、有效像素计数）。
+    # 参数：输入 leads（lead 天数）；输出 无。
     def __init__(self, leads):
         self.count = np.zeros(leads, dtype=np.float64)
         self.total = np.zeros(leads, dtype=np.float64)
         self.total_squared = np.zeros(leads, dtype=np.float64)
 
+    # 用途：累加一个批次的残差与 mask 统计。
+    # 参数：输入 residual（残差场）、mask（有效像素 mask）；输出 无。
     def update(self, residual, mask):
         residual = np.asarray(residual, dtype=np.float64)
         mask = np.asarray(mask) > 0
@@ -31,6 +35,8 @@ class LeadStatsAccumulator:
             self.total[lead] += values.sum()
             self.total_squared[lead] += np.square(values).sum()
 
+    # 用途：由累计量计算每个 lead 的均值与标准差。
+    # 参数：无输入；输出 [(mean, std), ...]。
     def compute(self):
         if np.any(self.count < 2):
             raise ValueError("each lead needs at least two valid values")
@@ -46,6 +52,8 @@ class LeadStatsAccumulator:
         }
 
 
+# 用途：在数据集范围内均匀确定固定可复现的抽样索引。
+# 参数：输入 dataset_size（样本总数）、num_samples（抽样数）；输出 索引数组。
 def build_indices(dataset_size, num_samples):
     if num_samples is None or num_samples >= dataset_size:
         return np.arange(dataset_size, dtype=np.int64)
@@ -59,6 +67,8 @@ def build_indices(dataset_size, num_samples):
     ))
 
 
+# 用途：按 HDF5 chunk 对齐抽样索引，选取连续空间块内的训练样本。
+# 参数：输入 dataset（数据集）、num_samples（抽样数）；输出 对齐后的索引数组。
 def build_chunk_aware_indices(dataset, num_samples):
     """Select train samples in contiguous spatial blocks.
 
@@ -111,6 +121,8 @@ def build_chunk_aware_indices(dataset, num_samples):
     return np.asarray(selected, dtype=np.int64)
 
 
+# 用途：计算 train-only 逐 lead 残差统计并写 JSON（记录 condition_mode 与抽样身份）。
+# 参数：输入 h5_path/output、input_days/output_days、num_samples/batch_size、condition（条件模式）；输出 无。
 def compute_lead_stats_file(
         h5_path,
         output,
@@ -198,6 +210,8 @@ def compute_lead_stats_file(
     return result
 
 
+# 用途：命令行入口：解析参数并执行 lead 统计计算。
+# 参数：无输入（读命令行）；输出 无。
 def main():
     parser = argparse.ArgumentParser(
         description=(

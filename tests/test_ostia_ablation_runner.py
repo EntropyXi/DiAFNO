@@ -31,18 +31,24 @@ from .ostia_test_h5 import (  # noqa: E402
 
 
 class RunnerSafetyTests(OSTIATestCase):
+    # 用途：验证拒绝向已存在非空目录启动。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_refuses_existing_nonempty_directory(self):
         path = self.tmp_path("occupied")
         os.makedirs(os.path.join(path, "run"))
         with self.assertRaisesRegex(RuntimeError, "refusing"):
             assert_directory_available(path)
 
+    # 用途：验证接受缺失或空目录。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_accepts_missing_or_empty_directory(self):
         path = self.tmp_path("fresh")
         assert_directory_available(path)
         os.makedirs(path)
         assert_directory_available(path)
 
+    # 用途：验证日志文件名不产生双后缀。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_logfile_for_does_not_duplicate_suffix(self):
         root = self.tmp_path("logs")
         self.assertEqual(
@@ -54,6 +60,8 @@ class RunnerSafetyTests(OSTIATestCase):
             os.path.join(root, "resume.log"),
         )
 
+    # 用途：验证安全钩子从不创建或删除目录。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_never_creates_or_deletes(self):
         # The refusal helper is purely a guard: nothing is created and
         # nothing is removed by it.
@@ -61,6 +69,8 @@ class RunnerSafetyTests(OSTIATestCase):
         assert_directory_available(path)
         self.assertFalse(os.path.exists(path))
 
+    # 用途：验证有效 batch 计算公式。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_effective_batch_formula(self):
         self.assertEqual(
             samples_per_epoch_for_steps(50, 2, 8, 2),
@@ -75,6 +85,8 @@ class RunnerSafetyTests(OSTIATestCase):
             8000,
         )
 
+    # 用途：验证无 GPU 时 require_cuda fail-closed。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_require_cuda_fails_closed_without_gpu(self):
         import torch
         if torch.cuda.is_available():
@@ -82,6 +94,8 @@ class RunnerSafetyTests(OSTIATestCase):
         with self.assertRaisesRegex(RuntimeError, "CUDA"):
             require_cuda()
 
+    # 用途：验证阶段协议的固定预算。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_stage_protocol_fixed_budgets(self):
         stage1 = STAGE_PROTOCOL["stage1"]
         self.assertEqual(stage1["steps"], 50)
@@ -101,6 +115,8 @@ class RunnerSafetyTests(OSTIATestCase):
         # The val protocol never touches the test split.
         self.assertIsNotNone(runner.__doc__)
 
+    # 用途：验证 Stage1 预算：50 步训练 + 10 步 resume。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_stage1_epoch_budget_math_50_to_60(self):
         # The reviewed stage-1 shape: first phase 5 epochs x 10
         # optimizer steps (checkpoint_interval=5), resume phase
@@ -133,6 +149,8 @@ class RunnerSafetyTests(OSTIATestCase):
             resume["horizon_steps"], resume["last_epoch"]
         )
 
+    # 用途：验证 Stage2 是单 epoch 300 步。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_stage2_budget_is_single_epoch(self):
         budgets = runner.stage_run_budgets(
             STAGE_PROTOCOL["stage2"], gpus=2,
@@ -142,6 +160,8 @@ class RunnerSafetyTests(OSTIATestCase):
         self.assertEqual(budgets["first"]["global_steps"], 300)
         self.assertIsNone(budgets["resume"])
 
+    # 用途：验证 Stage3 预算保持 500/1000/1500 评估网格。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_stage3_budget_keeps_eval_grid(self):
         budgets = runner.stage_run_budgets(
             STAGE_PROTOCOL["stage3"], gpus=2,
@@ -155,6 +175,8 @@ class RunnerSafetyTests(OSTIATestCase):
         for step in (500, 1000, 1500):
             self.assertEqual(step % 250, 0)
 
+    # 用途：验证步数不能整除每 epoch 步数时拒绝。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_budget_rejects_non_divisible_steps(self):
         protocol = dict(STAGE_PROTOCOL["stage1"])
         protocol["steps"] = 55  # not a whole number of 10-step epochs
@@ -171,6 +193,8 @@ class RunnerSafetyTests(OSTIATestCase):
                 batch_per_gpu=8, gradient_accumulation=2,
             )
 
+    # 用途：验证训练命令正确反映 Stage1 预算。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_trainer_command_reflects_stage1_budgets(self):
         from types import SimpleNamespace
         budgets = runner.stage_run_budgets(
@@ -226,6 +250,8 @@ class RunnerSafetyTests(OSTIATestCase):
             command_text,
         )
 
+    # 用途：验证自动生成的 lead stats 路径进入训练命令。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_auto_generated_lead_stats_reaches_trainer_command(self):
         # Regression for the server smoke blocker: when the stage CLI
         # has no manual --lead-stats, resolve_lead_stats computes a
@@ -265,6 +291,8 @@ class RunnerSafetyTests(OSTIATestCase):
         )
         self.assertNotIn("--lead-stats", " ".join(command))
 
+    # 用途：验证 checkpoint 步数校验门槛。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_verify_checkpoint_step_gate(self):
         import torch
         good = os.path.join(self._tmp, "latest.pth")
@@ -296,6 +324,8 @@ class RunnerSafetyTests(OSTIATestCase):
                 label="first phase",
             )
 
+    # 用途：验证 A5 无显式胜者时拒绝启动。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_a5_refuses_without_explicit_winner(self):
         with self.assertRaisesRegex(RuntimeError, "winner"):
             runner.resolve_winner_blocks("A5", None)
@@ -311,6 +341,8 @@ class RunnerSafetyTests(OSTIATestCase):
             runner.resolve_winner_blocks("A1", None)
         )
 
+    # 用途：验证 manifest 记录有效胜者块数。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_manifest_records_effective_winner_blocks(self):
         identity = ABLATION_CONFIGS["A5"]
         manifest = runner.compose_manifest(
@@ -361,6 +393,8 @@ class RunnerSafetyTests(OSTIATestCase):
 
 
 class AblationConfigIdentityTests(OSTIATestCase):
+    # 用途：验证六个配置文件与消融矩阵表一致。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_all_six_config_files_match_the_table(self):
         for config_id in sorted(ABLATION_CONFIGS):
             identity, config_path, payload = runner.load_config_json(
@@ -378,6 +412,8 @@ class AblationConfigIdentityTests(OSTIATestCase):
                 identity["mode"], payload["condition_mode"]
             )
 
+    # 用途：验证消融矩阵各配置的隔离性。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_matrix_isolation(self):
         a0 = ABLATION_CONFIGS["A0"]
         self.assertEqual(a0["mode"], "sst_mask")
@@ -398,6 +434,8 @@ class AblationConfigIdentityTests(OSTIATestCase):
             self.assertEqual(entry["blocks"], blocks)
         self.assertEqual(ABLATION_CONFIGS["A5"]["implicit"], 4)
 
+    # 用途：验证 runner 拒绝错误的有效 batch。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_runner_refuses_bad_effective_batch(self):
         # load_config_json only needs files; the CLI-level guards are
         # exercised by building the argument namespace directly.
@@ -405,6 +443,8 @@ class AblationConfigIdentityTests(OSTIATestCase):
                          os.path.join("experiments",
                                       "ostia_spatiotemporal_ablation"))
 
+    # 用途：验证验证 JSON 有限性硬门槛。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_validation_json_gate(self):
         good = self.tmp_path("good.json")
         with open(good, "w", encoding="utf-8") as file:
@@ -430,6 +470,8 @@ class AblationConfigIdentityTests(OSTIATestCase):
 class RunnerDataManifestTests(OSTIATestCase):
     """A0..A5 require one shared upstream data manifest."""
 
+    # 用途：构造测试用数据清单载荷。
+    # 参数：无输入；输出 manifest dict。
     def _manifest(self):
         h5_path = make_synthetic_h5(
             self.tmp_path("tiny.h5"),
@@ -446,6 +488,8 @@ class RunnerDataManifestTests(OSTIATestCase):
         )
         return manifest_path
 
+    # 用途：验证每个配置都必须绑定数据清单。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_every_config_requires_data_manifest(self):
         path = self._manifest()
         for config_id in ("A0", "A1", "A5"):
@@ -464,6 +508,8 @@ class RunnerDataManifestTests(OSTIATestCase):
             )
             self.assertEqual(len(resolved["sha256"]), 64)
 
+    # 用途：验证训练/验证命令都携带数据清单。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_commands_carry_data_manifest(self):
         from types import SimpleNamespace
         path = self._manifest()
@@ -504,6 +550,8 @@ class RunnerDataManifestTests(OSTIATestCase):
         )
         self.assertNotIn("--data-manifest", " ".join(plain))
 
+    # 用途：验证阶段 manifest 记录数据清单身份。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_stage_manifest_records_data_manifest_identity(self):
         identity = ABLATION_CONFIGS["A1"]
         path = self._manifest()
@@ -533,6 +581,8 @@ class RunnerDataManifestTests(OSTIATestCase):
 
 
 class LeadStatsModeIntegrationTests(OSTIATestCase):
+    # 用途：验证 lead stats 文件记录 condition_mode。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_compute_lead_stats_file_records_condition_mode(self):
         h5_path = make_synthetic_h5(
             self.tmp_path("stats.h5"),
@@ -573,6 +623,8 @@ class LeadStatsModeIntegrationTests(OSTIATestCase):
         self.assertEqual(reloaded["condition_mode"],
                          "sst_mask_geo_season")
 
+    # 用途：验证不匹配的既有统计绝不复用。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_existing_mismatched_stats_never_reused(self):
         h5_path = make_synthetic_h5(
             self.tmp_path("stats_other.h5"),
@@ -602,6 +654,8 @@ class LeadStatsModeIntegrationTests(OSTIATestCase):
                 config_root, identity, payload, h5_path
             )
 
+    # 用途：验证显式指定统计也做身份校验。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_explicit_stats_identity_is_also_validated(self):
         h5_path = make_synthetic_h5(
             self.tmp_path("explicit.h5"), total_days=240,
@@ -639,6 +693,8 @@ class LeadStatsModeIntegrationTests(OSTIATestCase):
 class AuditScriptTests(OSTIATestCase):
     """Read-only HDF5 audit / manifest tool (plan section 7)."""
 
+    # 用途：验证 geo 文件的审计清单生成。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_audit_manifest_on_geo_file(self):
         import audit_ostia_h5 as audit
         from diafno.data.ostia import coordinate_sha256
@@ -708,6 +764,8 @@ class AuditScriptTests(OSTIATestCase):
             manifest["coordinates"]["lat"]["sha256"],
         )
 
+    # 用途：验证不可解码时间轴时审计 fail-closed。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_audit_records_undecodable_time_fail_closed(self):
         import audit_ostia_h5 as audit
         bare = make_synthetic_h5(
@@ -725,6 +783,8 @@ class AuditScriptTests(OSTIATestCase):
         self.assertFalse(precheck["ready"])
         self.assertIn("units", precheck["reason"])
 
+    # 用途：验证审计拒绝覆盖已有输出。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_audit_refuses_existing_output(self):
         import audit_ostia_h5 as audit
         h5_path = make_synthetic_h5(
@@ -739,6 +799,8 @@ class AuditScriptTests(OSTIATestCase):
             self.assertEqual(json.load(file)["path"],
                              os.path.abspath(h5_path))
 
+    # 用途：验证审计流式处理逐行坐标布局。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_audit_streams_per_sample_coordinate_layout(self):
         # A per-sample 2-D coordinate layout ([rows, H]) must never be
         # fully loaded by the audit: it is analysed with bounded
@@ -784,6 +846,8 @@ class AuditScriptTests(OSTIATestCase):
         self.assertFalse(precheck["ready"])
         self.assertIn("1-D", precheck["reason"])
 
+    # 用途：验证坐标分析在严格内存上限下流式完成。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_coordinate_analysis_streams_under_strict_limit(self):
         # Even a 1-D vector is streamed when its size exceeds the
         # configured direct-read limit; the digest stays identical.
@@ -808,6 +872,8 @@ class AuditScriptTests(OSTIATestCase):
             raw_lat = np.asarray(file["lat"], dtype=np.float64)
         self.assertEqual(full["sha256"], coordinate_sha256(raw_lat))
 
+    # 用途：验证坐标分析按声明的行数抽样。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_coordinate_analysis_samples_declared_rows(self):
         # Real per-day patch grids are enormous but repeated.  The
         # audit must be able to analyse a declared representative
@@ -843,6 +909,8 @@ class AuditScriptTests(OSTIATestCase):
         self.assertEqual(sampled["min"], 0.0)
         self.assertEqual(sampled["max"], 3.0)
 
+    # 用途：验证审计的校验和计算与缺失文件处理。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_audit_checksum_and_missing_file(self):
         import audit_ostia_h5 as audit
         import hashlib

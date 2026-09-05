@@ -29,6 +29,8 @@ if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
 
+# 用途：h5py 属性标量的尽力文本解码。
+# 参数：输入 value；输出 str。
 def _h5_text(value):
     if value is None:
         return None
@@ -45,6 +47,8 @@ def _h5_text(value):
     return str(value)
 
 
+# 用途：快照容器的全部属性为纯 python 类型。
+# 参数：输入 container（h5py 容器）；输出 属性 dict。
 def _attrs_snapshot(container):
     return {
         str(key): _h5_text(value)
@@ -52,6 +56,8 @@ def _attrs_snapshot(container):
     }
 
 
+# 用途：汇总数据集的 shape/dtype/chunks/compression。
+# 参数：输入 dataset（h5py 数据集）；输出 摘要 dict。
 def _dataset_summary(dataset):
     summary = {
         "shape": list(dataset.shape),
@@ -71,6 +77,8 @@ def _dataset_summary(dataset):
     return summary
 
 
+# 用途：尽力解码日时间值的范围与相邻差分。
+# 参数：输入 time_values、attrs/file_attrs（属性容器）；输出 解码 dict。
 def _decode_time_range(time_values, attrs, file_attrs):
     """Best-effort decoding of the daily time values.
 
@@ -152,6 +160,8 @@ _DIRECT_READ_LIMIT_BYTES = 128 * 1024 * 1024
 _STREAM_BLOCK_BYTES = 16 * 1024 * 1024
 
 
+# 用途：坐标的 min/max/非有限计数与规范字节 SHA（有界流式读取）。
+# 参数：输入 dataset、direct_read_limit_bytes（直读上限）、representative_rows（抽样行数）；输出 分析 dict。
 def coordinate_analysis(dataset, direct_read_limit_bytes=None,
                         representative_rows=None):
     """min/max/non-finite count and canonical-bytes sha256 of a
@@ -285,6 +295,8 @@ def coordinate_analysis(dataset, direct_read_limit_bytes=None,
     return result
 
 
+# 用途：产出覆盖升序索引的半开连续区间（生成器）。
+# 参数：输入 indices（升序索引）；输出 区间迭代器。
 def _contiguous_ranges(indices):
     """Yield half-open ranges covering sorted integer indices."""
     start = previous = int(indices[0])
@@ -297,6 +309,8 @@ def _contiguous_ranges(indices):
     yield start, previous + 1
 
 
+# 用途：只读读取上游 NetCDF 时间轴（失败即 fail-closed）。
+# 参数：输入 netcdf_path；输出 时间轴信息 dict。
 def read_upstream_time_axis(netcdf_path):
     """Read the upstream NetCDF time axis (read-only, fail closed).
 
@@ -423,6 +437,8 @@ def read_upstream_time_axis(netcdf_path):
     }
 
 
+# 用途：组装训练可用的只读数据清单载荷。
+# 参数：输入 netcdf_path、h5_path、h5_audit_payload（审计载荷）；输出 manifest dict。
 def build_data_manifest_payload(netcdf_path, h5_path,
                                 h5_audit_payload):
     """Compose the training-ready read-only data manifest.
@@ -481,6 +497,8 @@ def build_data_manifest_payload(netcdf_path, h5_path,
     }
 
 
+# 用途：从审计载荷取 H5 紧凑时间轴 SHA。
+# 参数：输入 payload；输出 摘要字符串。
 def _compact_time_sha256_from_payload(payload):
     """H5 compact time-axis sha256 recorded during the audit."""
     try:
@@ -493,6 +511,8 @@ def _compact_time_sha256_from_payload(payload):
     return None
 
 
+# 用途：从审计载荷取坐标布局名。
+# 参数：输入 payload；输出 布局名。
 def _coordinate_layout_name(payload):
     lat = payload.get("coordinates", {}).get("lat", {})
     shape = lat.get("shape") or []
@@ -503,6 +523,8 @@ def _coordinate_layout_name(payload):
     return "unknown"
 
 
+# 用途：为单个 HDF5 生成只读审计清单（shape/属性/时间轴/坐标）。
+# 参数：输入 h5_path、input_days/output_days、checksum（是否计算文件校验）；输出 审计载荷 dict。
 def audit_h5_to_json(h5_path, input_days=7, output_days=15,
                      checksum=False):
     """Produce the read-only audit manifest for one HDF5 file."""
@@ -603,6 +625,8 @@ def audit_h5_to_json(h5_path, input_days=7, output_days=15,
     return manifest
 
 
+# 用途：以 runner 的确切 geo 数据集做只读实例化预检。
+# 参数：输入 h5_path、input_days/output_days、data_manifest；输出 无（失败抛异常）。
 def _geo_dataset_precheck(h5_path, input_days=7, output_days=15,
                           data_manifest=None):
     """Instantiate the runner's exact geo dataset, read-only."""
@@ -646,6 +670,8 @@ def _geo_dataset_precheck(h5_path, input_days=7, output_days=15,
             dataset.close()
 
 
+# 用途：写审计 JSON（拒绝覆盖已有文件）。
+# 参数：输入 output_path、payload；输出 无。
 def write_audit_report(output_path, payload):
     """Write the manifest JSON, refusing to overwrite anything."""
     if os.path.exists(output_path):
@@ -661,6 +687,8 @@ def write_audit_report(output_path, payload):
     return output_path
 
 
+# 用途：入口：解析参数并执行 HDF5 审计。
+# 参数：无输入（读命令行）；输出 无。
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--h5-path", required=True)

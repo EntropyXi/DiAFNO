@@ -27,6 +27,8 @@ from .ostia_test_h5 import (
 )
 
 
+# 用途：独立实现的有效海洋参考计算（交叉验证用）。
+# 参数：输入 sst、mask；输出 bool 数组。
 def valid_ocean_reference(sst, mask):
     return (
         ((mask.astype(np.uint8) & 2) == 0)
@@ -36,12 +38,16 @@ def valid_ocean_reference(sst, mask):
     )
 
 
+# 用途：h5py 属性标量的文本解码辅助。
+# 参数：输入 value；输出 str。
 def _h5_text(value):
     if isinstance(value, bytes):
         return value.decode("utf-8", errors="replace")
     return str(value)
 
 
+# 用途：独立重算单样本的条件/目标/mask 参考值。
+# 参数：输入 h5_path、dataset、sequence_index、spatial_index；输出 参考样本。
 def expected_sample(h5_path, dataset, sequence_index, spatial_index):
     """Recompute one sample's condition/target/target_mask from the
     raw HDF5 rows with the documented formulas (independent of the
@@ -152,6 +158,8 @@ def expected_sample(h5_path, dataset, sequence_index, spatial_index):
 
 
 class GeoSeasonConditionTests(OSTIATestCase):
+    # 用途：每个测试前的夹具准备。
+    # 参数：无输入；输出 无。
     def setUp(self):
         super().setUp()
         self.h5_path = make_synthetic_h5(
@@ -163,6 +171,8 @@ class GeoSeasonConditionTests(OSTIATestCase):
             first_time=30,
         )
 
+    # 用途：按 split 构造测试用 geo 数据集。
+    # 参数：输入 split、index；输出 数据集实例。
     def geo_dataset(self, split="train", index=None):
         return OSTIADailyDataset(
             h5_path=self.h5_path,
@@ -172,6 +182,8 @@ class GeoSeasonConditionTests(OSTIATestCase):
             condition_mode="sst_mask_geo_season",
         )
 
+    # 用途：验证条件张量形状、通道数与顺序。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_condition_shape_channels_and_order(self):
         dataset = self.geo_dataset()
         self.assertEqual(
@@ -203,6 +215,8 @@ class GeoSeasonConditionTests(OSTIATestCase):
             GEO_STATIC_CHANNEL_NAMES,
         )
 
+    # 用途：验证条件值与文档公式一致。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_condition_values_match_documented_formula(self):
         dataset = self.geo_dataset()
         for index in (0, 13, 77, 140):
@@ -222,6 +236,8 @@ class GeoSeasonConditionTests(OSTIATestCase):
                     f"index {index} key {key} differs",
                 )
 
+    # 用途：验证纬度通道只沿高度方向变化。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_latitude_channels_vary_along_height_only(self):
         dataset = self.geo_dataset()
         condition = dataset[0]["condition"].numpy()
@@ -247,6 +263,8 @@ class GeoSeasonConditionTests(OSTIATestCase):
             ),
         ))
 
+    # 用途：验证经度通道只沿宽度方向变化。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_longitude_channels_vary_along_width_only(self):
         dataset = self.geo_dataset()
         condition = dataset[0]["condition"].numpy()
@@ -269,6 +287,8 @@ class GeoSeasonConditionTests(OSTIATestCase):
             np.broadcast_to(sin_lon[:1, :], sin_lon.shape),
         ))
 
+    # 用途：验证日界线附近经度编码连续。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_dateline_encoding_is_continuous(self):
         # lon spans [-177, 177] with a true cyclic distance of 6
         # degrees between the endpoints; sin/cos encoding must not
@@ -295,6 +315,8 @@ class GeoSeasonConditionTests(OSTIATestCase):
                 np.abs(first - last) <= bound + 1e-5
             ))
 
+    # 用途：验证季节相位使用解码后的 Gregorian 日期。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_seasonal_phase_uses_decoded_gregorian_date(self):
         dataset = self.geo_dataset()
         # first_time=30, units days since 2019-01-01 -> time[0] is
@@ -321,6 +343,8 @@ class GeoSeasonConditionTests(OSTIATestCase):
             atol=0.0,
         ))
 
+    # 用途：验证闰年 2 月 29 日解码为 doy=60。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_leap_year_february_29_decodes_to_doy_60(self):
         # first_time=418 -> time[418] is 2020-02-23 (2019-01-01 plus
         # 418 days); t0 of sequence 0 is 2020-02-29: doy 60 in a
@@ -355,6 +379,8 @@ class GeoSeasonConditionTests(OSTIATestCase):
             places=6,
         )
 
+    # 用途：验证跨年窗口的季节相位取 t0 而非目标日。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_cross_year_window_uses_t0_not_target_dates(self):
         # first_time=719 with units days since 2019-01-01: sequence 0's
         # t0 lands in late December 2020 and the 15 target days run
@@ -418,6 +444,8 @@ class GeoSeasonConditionTests(OSTIATestCase):
             dataset.first_time + 6 + 15,
         )
 
+    # 用途：验证无效 SST 填均值后模型空间为 0。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_invalid_sst_fills_mean_and_becomes_zero(self):
         dataset = self.geo_dataset()
         sample = dataset[0]
@@ -443,6 +471,8 @@ class GeoSeasonConditionTests(OSTIATestCase):
             t0_valid,
         ))
 
+    # 用途：验证 geo 模式前 8 通道与 sst_mask 模式逐值一致。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_geo_prefix_is_identical_to_sst_mask_mode(self):
         geo = self.geo_dataset()
         legacy = OSTIADailyDataset(
@@ -466,6 +496,8 @@ class GeoSeasonConditionTests(OSTIATestCase):
                 legacy[index]["target_mask"].numpy(),
             ))
 
+    # 用途：验证旧模式条件只含历史通道。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_legacy_sst_mode_is_history_only(self):
         legacy = OSTIADailyDataset(
             h5_path=self.h5_path,
@@ -483,6 +515,8 @@ class GeoSeasonConditionTests(OSTIATestCase):
             (7, 8, 10, 1),
         )
 
+    # 用途：验证目标与静态通道无耦合。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_target_has_no_coupling_with_static_channels(self):
         # Changing only lat/lon content must not change target or
         # target_mask at all (the forecast targets come from the same
@@ -515,6 +549,8 @@ class GeoSeasonConditionTests(OSTIATestCase):
                 other[index]["condition"].numpy(),
             ))
 
+    # 用途：验证 __getitems__ 快路径与 __getitem__ 逐值一致。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_getitems_fast_path_matches_getitem(self):
         h5_path = make_synthetic_h5(
             self.tmp_path("multi_spatial.h5"),
@@ -555,6 +591,8 @@ class GeoSeasonConditionTests(OSTIATestCase):
                     index % 3,
                 )
 
+    # 用途：验证 train/val/test 时间边界不变。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_split_boundaries_unchanged(self):
         dataset = self.geo_dataset()
         self.assertEqual(dataset.split_ranges["train"], (0.0, 0.7))
@@ -602,6 +640,8 @@ class GeoSeasonConditionTests(OSTIATestCase):
             len(val),
         )
 
+    # 用途：验证标准化只用 train 统计且不混入静态通道。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_normalization_is_train_only_and_never_sees_static(self):
         dataset = self.geo_dataset()
         self.assertEqual(dataset.sst_mean, 280.0)
@@ -639,6 +679,8 @@ class GeoSeasonConditionTests(OSTIATestCase):
             atol=1e-5,
         ))
 
+    # 用途：验证缺失日期元数据时 fail-closed。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_fail_closed_missing_date_metadata(self):
         bare = make_synthetic_h5(
             self.tmp_path("bare.h5"),
@@ -664,6 +706,8 @@ class GeoSeasonConditionTests(OSTIATestCase):
             (8, 8, 10, 1),
         )
 
+    # 用途：验证不支持的日历时 fail-closed。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_fail_closed_unsupported_calendar(self):
         weird = make_synthetic_h5(
             self.tmp_path("calendar.h5"),
@@ -678,6 +722,8 @@ class GeoSeasonConditionTests(OSTIATestCase):
                 condition_mode="sst_mask_geo_season",
             )
 
+    # 用途：验证经纬度非有限时 fail-closed。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_fail_closed_nonfinite_latlon(self):
         bad = make_synthetic_h5(
             self.tmp_path("nanlat.h5"),
@@ -693,6 +739,8 @@ class GeoSeasonConditionTests(OSTIATestCase):
                 condition_mode="sst_mask_geo_season",
             )
 
+    # 用途：验证经纬度形状错误时 fail-closed。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_fail_closed_wrong_latlon_shape(self):
         bad = make_synthetic_h5(
             self.tmp_path("twod_lat.h5"),
@@ -707,6 +755,8 @@ class GeoSeasonConditionTests(OSTIATestCase):
                 condition_mode="sst_mask_geo_season",
             )
 
+    # 用途：验证未知角度单位时 fail-closed。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_fail_closed_unknown_angular_units(self):
         bad = make_synthetic_h5(
             self.tmp_path("furlong.h5"),
@@ -722,6 +772,8 @@ class GeoSeasonConditionTests(OSTIATestCase):
                 condition_mode="sst_mask_geo_season",
             )
 
+    # 用途：验证角度超范围时 fail-closed。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_fail_closed_out_of_range_degrees(self):
         bad = make_synthetic_h5(
             self.tmp_path("range.h5"),
@@ -736,6 +788,8 @@ class GeoSeasonConditionTests(OSTIATestCase):
                 condition_mode="sst_mask_geo_season",
             )
 
+    # 用途：验证地理摘要绑定坐标值。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_geospatial_digest_pins_coordinate_values(self):
         dataset = self.geo_dataset()
         summary = dataset.geospatial_summary
@@ -786,6 +840,8 @@ class GeoSeasonConditionTests(OSTIATestCase):
             other.geospatial_summary["lon_sha256"],
         )
 
+    # 用途：验证 0..360 经度约定受支持。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_longitude_0_to_360_degrees_supported(self):
         # Real server fact: the source grid uses the 0..360 degrees
         # convention (first lon patch 80.025..199.975), which the old
@@ -829,6 +885,8 @@ class GeoSeasonConditionTests(OSTIATestCase):
             atol=0.0,
         ))
 
+    # 用途：验证 0..360 经度回绕处编码连续。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_longitude_0_to_360_wrap_is_continuous(self):
         wrapped = make_synthetic_h5(
             self.tmp_path("lon_wrap.h5"),
@@ -859,6 +917,8 @@ class GeoSeasonConditionTests(OSTIATestCase):
             np.abs(sin_lon[:, 0] - sin_lon[:, -1]) <= bound + 1e-6
         ))
 
+    # 用途：验证不支持的经度约定被拒绝。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_longitude_outside_supported_conventions_rejected(self):
         # A mix/overflow of the [-180,180] and [0,360] conventions is
         # a units bug, not a third convention.
@@ -891,6 +951,8 @@ class GeoSeasonConditionTests(OSTIATestCase):
                 condition_mode="sst_mask_geo_season",
             )
 
+    # 用途：验证弧度经度支持两种约定。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_radian_longitude_supports_both_conventions(self):
         # [-pi, pi] radians.
         minus_pi = make_synthetic_h5(
@@ -961,6 +1023,8 @@ class GeoSeasonConditionTests(OSTIATestCase):
                 condition_mode="sst_mask_geo_season",
             )
 
+    # 用途：验证非法条件模式被拒绝。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_invalid_condition_mode_rejected(self):
         with self.assertRaisesRegex(ValueError, "condition_mode"):
             OSTIADailyDataset(

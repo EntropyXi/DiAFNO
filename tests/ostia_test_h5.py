@@ -20,6 +20,8 @@ import h5py
 import numpy as np
 
 
+# 用途：从 units/calendar 文本解析参考日期。
+# 参数：输入 units_text/calendar_text；输出 date。
 def reference_date_from_units(units_text, calendar_text=None):
     match = __import__("re").match(
         r"^\s*days\s+since\s+(\d{4})-(\d{1,2})-(\d{1,2})",
@@ -29,6 +31,8 @@ def reference_date_from_units(units_text, calendar_text=None):
     return date(year, month, day)
 
 
+# 用途：绝对日时间值的日历日期。
+# 参数：输入 units_text、time_value；输出 date。
 def time_value_date(units_text, time_value):
     """Calendar date of an absolute daily time value."""
     return (
@@ -37,6 +41,8 @@ def time_value_date(units_text, time_value):
     )
 
 
+# 用途：生成确定性平滑合成 SST 场（开尔文）。
+# 参数：输入 day/spatial/height/width/seed；输出 场数组。
 def synthetic_field_values(day, spatial, height, width, seed=0):
     """Deterministic smooth synthetic SST content (Kelvin-ish)."""
     rng = np.random.default_rng(seed + day)
@@ -52,6 +58,8 @@ def synthetic_field_values(day, spatial, height, width, seed=0):
     return values
 
 
+# 用途：默认陆地 pattern（mask bit 1 标记首列首行）。
+# 参数：输入网格参数与 seed；输出 mask 数组。
 def default_grid(day, spatial, height, width, seed=0):
     """Land pattern: mask bit 1 set on the first column and NaN-free;
     additionally one NaN pixel and one >350 spike inside otherwise
@@ -69,6 +77,8 @@ def default_grid(day, spatial, height, width, seed=0):
     return values.astype(np.float32), mask
 
 
+# 用途：构造每空间块的真实感坐标轴。
+# 参数：输入 samples_per_day/height/width；输出 (lat, lon)。
 def per_spatial_axes(samples_per_day, height, width):
     """Realistic per-patch axes: lat varies along the height (rows),
     lon along the width (columns), distinct per spatial index.
@@ -99,6 +109,8 @@ def per_spatial_axes(samples_per_day, height, width):
     return lat_axes, lon_axes
 
 
+# 用途：写测试用标准合成 OSTIA HDF5 文件。
+# 参数：输入 path 与网格/时间参数；输出 无。
 def make_synthetic_h5(
         path,
         total_days=240,
@@ -211,6 +223,8 @@ def make_synthetic_h5(
     return path
 
 
+# 用途：全紧凑时间轴的规范 SHA256（只读）。
+# 参数：输入 h5_path；输出 摘要。
 def compact_time_sha256(h5_path):
     """Canonical sha256 of the full compact time axis (row order)."""
     import hashlib
@@ -221,6 +235,8 @@ def compact_time_sha256(h5_path):
     ).hexdigest()
 
 
+# 用途：写与合成 HDF5 对齐的数据清单。
+# 参数：输入 path、h5_path 与时间/坐标参数；输出 无。
 def write_synthetic_data_manifest(path, h5_path, offsets=None,
                                   units="days since 2019-01-01",
                                   calendar="standard",
@@ -278,6 +294,8 @@ def write_synthetic_data_manifest(path, h5_path, offsets=None,
     return payload
 
 
+# 用途：从 HDF5 推断每日样本数。
+# 参数：输入 h5_path；输出 int。
 def _samples_per_day(h5_path):
     with h5py.File(h5_path, "r") as file:
         time = np.asarray(file["time"], dtype=np.int64)
@@ -296,11 +314,17 @@ def _samples_per_day(h5_path):
 class OSTIATestCase(unittest.TestCase):
     """Temporary-directory lifecycle shared by the OSTIA tests."""
 
+    # 用途：每个测试前的夹具准备。
+    # 参数：无输入；输出 无。
     def setUp(self):
         self._tmp = tempfile.mkdtemp(prefix="ostia_test_")
 
+    # 用途：每个测试后的夹具清理。
+    # 参数：无输入；输出 无。
     def tearDown(self):
         shutil.rmtree(self._tmp, ignore_errors=True)
 
+    # 用途：生成临时文件路径的辅助。
+    # 参数：输入 name；输出 路径。
     def tmp_path(self, name):
         return os.path.join(self._tmp, name)

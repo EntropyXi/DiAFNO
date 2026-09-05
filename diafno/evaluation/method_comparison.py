@@ -12,6 +12,8 @@ LABELS = ("DiAFNO ensemble mean", "IAFNO deterministic", "Persistence")
 LEADS = (1, 5, 10, 15)
 
 
+# 用途：经验集合 CRPS（非 fair CRPS）。
+# 参数：输入 members（[成员,lead,H,W] 预报）、target（真值）；输出 同形逐像素 CRPS。
 def empirical_crps(members, target):
     """Empirical ensemble CRPS, not fair CRPS. Shape [member, valid pixel].
 
@@ -33,10 +35,14 @@ def empirical_crps(members, target):
     return np.maximum(score, 0.0)
 
 
+# 用途：计算 skill = 1 − value/reference。
+# 参数：输入 value（方法指标）、reference（基线指标）；输出 标量。
 def skill(value, reference):
     return None if reference is None or reference <= 0 else 1.0 - value / reference
 
 
+# 用途：按起报日块重采样（保留配对）给出 skill 置信区间。
+# 参数：输入 scores（逐样本分数）、reference（基线分数）、times（起报时间）；输出 (点估计, CI)。
 def paired_skill_ci(scores, reference, times, *, origin, block_days=22, replicates=2000, seed=123):
     """Resample initialization-day blocks, retaining paired pixels/methods.
 
@@ -68,6 +74,8 @@ def paired_skill_ci(scores, reference, times, *, origin, block_days=22, replicat
 
 
 class ComparisonScores:
+    # 用途：初始化多方法对比分数累计器。
+    # 参数：输入 horizon（lead 天数）；输出 无。
     def __init__(self, horizon=15):
         self.horizon = horizon
         self.metrics = {m: [RunningSSTMetrics() for _ in range(horizon)] for m in METHODS}
@@ -77,6 +85,8 @@ class ComparisonScores:
         self.counts = []
         self.times = []
 
+    # 用途：累加一个样本的多方法/多成员误差统计。
+    # 参数：输入 forecasts（各方法 [member,lead,H,W]）、target、mask、initialization_day；输出 无。
     def update(self, forecasts, target, mask, initialization_day):
         """One sample, each forecast [member,lead,H,W], target [lead,H,W]."""
         target, mask = np.asarray(target), np.asarray(mask)
@@ -112,6 +122,8 @@ class ComparisonScores:
             self.sse[method].append(sse)
             self.crps[method].append(crps)
 
+    # 用途：计算 overall 与逐 lead 的 RMSE/CRPS/skill 及 bootstrap CI。
+    # 参数：无输入；输出 结果 dict。
     def compute(self, *, origin, block_days=22, replicates=2000, seed=123):
         if not self.times:
             raise ValueError("No evaluated samples")
@@ -141,6 +153,8 @@ class ComparisonScores:
         return result
 
 
+# 用途：把对比结果渲染为 Markdown 报告。
+# 参数：输入 report（结果 dict）、path（输出路径）；输出 无。
 def write_markdown(report, path):
     def number(value):
         return "—" if value is None else f"{value:.4f}"
@@ -173,6 +187,8 @@ def write_markdown(report, path):
     Path(path).write_text("\n".join(lines), encoding="utf-8")
 
 
+# 用途：绘制三方法 Day 1/5/10/15 预报面板图。
+# 参数：输入 cases（选样）、output_dir（输出目录）、unit（单位）、dpi、title_prefix；输出 无。
 def draw_forecasts(cases, output_dir, unit="source units", dpi=250, title_prefix=""):
     import matplotlib
     matplotlib.use("Agg")

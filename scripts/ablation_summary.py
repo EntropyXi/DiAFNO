@@ -40,6 +40,8 @@ STAGE3_TAGS = {
 }
 
 
+# 用途：读取验证 JSON 载荷。
+# 参数：输入 path；输出 dict。
 def _load(path):
     if not os.path.isfile(path):
         return None
@@ -47,6 +49,8 @@ def _load(path):
         return json.load(file)
 
 
+# 用途：从验证载荷提取一行汇总指标。
+# 参数：输入 payload（验证 JSON）；输出 行 dict。
 def _metric_row(payload):
     if payload is None:
         return None
@@ -83,6 +87,8 @@ def _metric_row(payload):
     return row
 
 
+# 用途：汇总全部配置的阶段结果与 bootstrap CI。
+# 参数：输入 root（实验根目录）、bootstrap_paths（bootstrap JSON 路径）；输出 汇总 dict。
 def build_summary(root, bootstrap_paths=None):
     root = os.path.abspath(root)
     bootstrap_paths = bootstrap_paths or {}
@@ -132,12 +138,16 @@ def build_summary(root, bootstrap_paths=None):
     return summary
 
 
+# 用途：按精度格式化数值（缺失显示 '-'）。
+# 参数：输入 value、digits（小数位）；输出 字符串。
 def _fmt(value, digits=4):
     if value is None:
         return "-"
     return f"{value:.{digits}f}"
 
 
+# 用途：把汇总渲染为 Markdown 表格。
+# 参数：输入 summary（汇总 dict）；输出 Markdown 文本。
 def render_markdown(summary):
     lines = []
     lines.append("# OSTIA spatiotemporal ablation summary")
@@ -211,6 +221,8 @@ def render_markdown(summary):
     return "\n".join(lines)
 
 
+# 用途：入口：生成 final_summary JSON 与 Markdown。
+# 参数：无输入（读命令行）；输出 无。
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", required=True)

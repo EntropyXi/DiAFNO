@@ -19,22 +19,32 @@ from .ostia_test_h5 import OSTIATestCase  # noqa: E402
 class FakeEnv:
     """Fake filesystem/session/launch environment."""
 
+    # 用途：测试辅助函数。
+    # 参数：见函数签名（测试夹具辅助）；输出 测试用构造对象。
     def __init__(self, files=None, sessions=None):
         self.files = set(files or [])
         self.sessions = set(sessions or [])
         self.launches = []
 
+    # 用途：测试辅助函数。
+    # 参数：见函数签名（测试夹具辅助）；输出 测试用构造对象。
     def file_exists(self, path):
         return os.path.normpath(path) in self.files
 
+    # 用途：测试辅助函数。
+    # 参数：见函数签名（测试夹具辅助）；输出 测试用构造对象。
     def session_alive(self, name):
         return name in self.sessions
 
+    # 用途：测试辅助函数。
+    # 参数：见函数签名（测试夹具辅助）；输出 测试用构造对象。
     def launch(self, session, command, log):
         self.launches.append((session, command, log))
         self.sessions.add(session)
 
 
+# 用途：构造测试用任务 dict。
+# 参数：输入 id/deps/outputs/session/max_restarts；输出 任务 dict。
 def task(id, deps=None, outputs=None, session=None, max_restarts=1):
     return {
         "id": id,
@@ -48,6 +58,8 @@ def task(id, deps=None, outputs=None, session=None, max_restarts=1):
 
 
 class SupervisorEngineTests(OSTIATestCase):
+    # 用途：构造注入假环境的监督器。
+    # 参数：输入 tasks、env；输出 Supervisor。
     def _supervisor(self, tasks, env):
         state_path = os.path.join(self._tmp, "state.json")
         plan = {"tasks": tasks}
@@ -61,6 +73,8 @@ class SupervisorEngineTests(OSTIATestCase):
             log=lambda *args: None,
         ), state_path
 
+    # 用途：验证任务计划的校验。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_plan_validation(self):
         env = FakeEnv()
         with self.assertRaisesRegex(ValueError, "missing"):
@@ -80,6 +94,8 @@ class SupervisorEngineTests(OSTIATestCase):
                 file_exists=env.file_exists,
             )
 
+    # 用途：验证依赖未完成时阻止启动。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_dependency_gating_blocks_launch(self):
         env = FakeEnv()
         tasks = [task("run", deps=["dep.out"], outputs=["run.out"])]
@@ -91,6 +107,8 @@ class SupervisorEngineTests(OSTIATestCase):
         self.assertEqual(sup.evaluate_once()["run"], "launched")
         self.assertEqual(len(env.launches), 1)
 
+    # 用途：验证会话存活时不重复启动。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_no_double_launch_while_session_alive(self):
         env = FakeEnv(sessions={"sess_run"})
         tasks = [task("run")]
@@ -98,6 +116,8 @@ class SupervisorEngineTests(OSTIATestCase):
         self.assertEqual(sup.evaluate_once()["run"], "waiting")
         self.assertEqual(env.launches, [])
 
+    # 用途：验证完成标记阻止一切再启动。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_done_marker_stops_everything(self):
         env = FakeEnv()
         tasks = [task("run")]
@@ -107,6 +127,8 @@ class SupervisorEngineTests(OSTIATestCase):
         self.assertEqual(env.launches, [])
         self.assertTrue(sup.all_done())
 
+    # 用途：验证预算内允许重启。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_restart_within_budget(self):
         env = FakeEnv()
         tasks = [task("run", max_restarts=2)]
@@ -127,6 +149,8 @@ class SupervisorEngineTests(OSTIATestCase):
         sup.evaluate_once()
         self.assertEqual(len(env.launches), 3)
 
+    # 用途：验证重启预算耗尽后不再重启。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_restart_budget_exhausted(self):
         env = FakeEnv()
         tasks = [task("run", max_restarts=1)]
@@ -139,6 +163,8 @@ class SupervisorEngineTests(OSTIATestCase):
         self.assertEqual(sup.evaluate_once()["run"], "waiting")
         self.assertEqual(len(env.launches), 2)
 
+    # 用途：验证单次模式在有等待任务时退出。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_run_loop_once_exits_when_pending(self):
         env = FakeEnv()
         tasks = [task("run", deps=["never.out"])]
@@ -147,6 +173,8 @@ class SupervisorEngineTests(OSTIATestCase):
             sup, interval_seconds=5, once=True,
         ))
 
+    # 用途：验证状态文件损坏时可恢复。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_corrupt_state_recovers(self):
         env = FakeEnv()
         state_path = os.path.join(self._tmp, "state.json")
@@ -164,6 +192,8 @@ class SupervisorEngineTests(OSTIATestCase):
 
 
 class SummaryGeneratorTests(OSTIATestCase):
+    # 用途：写测试用验证结果 JSON。
+    # 参数：输入 path、rmse、skill、step；输出 无。
     def _write_val(self, path, rmse, skill=0.1, step=None):
         os.makedirs(os.path.dirname(path), exist_ok=True)
         payload = {
@@ -185,6 +215,8 @@ class SummaryGeneratorTests(OSTIATestCase):
         with open(path, "w", encoding="utf-8") as file:
             json.dump(payload, file)
 
+    # 用途：验证汇总与 Markdown 生成。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_build_summary_and_markdown(self):
         root = self._tmp
         stage2_rmse = {
@@ -256,6 +288,8 @@ class SummaryGeneratorTests(OSTIATestCase):
         # Summary payload stays JSON-serializable.
         json.dumps(summary)
 
+    # 用途：验证拒绝覆盖已有汇总输出。
+    # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
     def test_refuses_existing_summary_output(self):
         root = self._tmp
         out = os.path.join(root, "summary", "final_summary.json")

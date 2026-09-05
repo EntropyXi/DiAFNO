@@ -78,10 +78,14 @@ class OSTIAModelConfig:
     time_axis_summary: Optional[dict] = None
     data_manifest_sha256: Optional[str] = None
 
+    # 用途：把模型配置导出为可写 checkpoint/sidecar 的字典。
+    # 参数：无输入；输出 配置 dict。
     def to_checkpoint(self):
         return asdict(self)
 
     @classmethod
+    # 用途：从 checkpoint 配置字典恢复模型配置实例。
+    # 参数：输入 config（配置 dict）；输出 OSTIAModelConfig（类方法）。
     def from_checkpoint(cls, config):
         config = dict(config)
         if not all(
@@ -125,6 +129,8 @@ class OSTIAModelConfig:
 
     # -- condition-schema helpers ------------------------------------
 
+    # 用途：返回当前模式要求的固定通道顺序。
+    # 参数：无输入；输出 通道名元组。
     def canonical_condition_channel_names(self):
         """Fixed channel order required by the declared mode."""
         return condition_channel_names(
@@ -132,6 +138,8 @@ class OSTIAModelConfig:
             self.input_days,
         )
 
+    # 用途：把整个条件 schema 规范化为一个模式（通道表权威派生通道数与名称）。
+    # 参数：输入 condition_mode（目标模式）；输出 无。
     def adopt_condition_mode(self, condition_mode):
         """Make the whole condition schema canonical for one mode.
 
@@ -155,6 +163,8 @@ class OSTIAModelConfig:
         self.cond_chans = len(self.condition_channel_names)
         return self
 
+    # 用途：模型构建前的 fail-closed 通道/schema 校验。
+    # 参数：无输入；输出 无（不一致抛异常）。
     def validate_condition_schema(self):
         """Fail-closed channel/schema checks before any model build.
 
@@ -217,6 +227,8 @@ class OSTIAModelConfig:
                 f"{self.condition_schema_version}"
             )
 
+    # 用途：按配置构建 deterministic/diffusion/centered_diffusion 模型并移到设备。
+    # 参数：输入 device（设备）、sampling_steps（覆盖采样步数）；输出 nn.Module。
     def build_model(self, device, sampling_steps=None):
         self.validate_condition_schema()
         if self.target_mode not in ("absolute", "residual"):
