@@ -31,7 +31,27 @@
 └── validation_residual_smoke.json  # validation_residual_smoke.json 对应协议或 checkpoint 的验证评分（服务器产物）
 ```
 
-详细保留策略与 worktree 区别见 [项目导航](docs/PROJECT_LAYOUT.md)，历史计划统一见 [计划归档](archive/plans/README.md)。
+## 两套 worktree 与版本边界
+
+当前有旧主训练和时空消融两套并存的 worktree；目录同名的模块可能属于不同版本，不能直接互相覆盖。
+
+- 旧主训练：本地 `DiAFNO`，服务器 `/data2/user/zzx/exam_preprocessed/DiAFNO`，分支 `OSTIA_SST`。
+- 时空消融：本地 `DiAFNO-spatiotemporal-ablation`，服务器 `/data2/user/zzx/exam_preprocessed/DiAFNO_spatiotemporal_ablation`，分支 `codex/ostia-spatiotemporal-ablation`。
+- 早期 `DiAFNO_deterministic_baseline` 是独立历史 worktree，不改写其历史代码。
+
+每层 README 列出本层文件的一句话用途；子目录自己的 README 继续展开。树中标记“服务器产物”的项目本地可能不存在。Git 内部目录、虚拟环境和 Python 缓存不属于业务目录，不添加 README。历史计划统一见 [计划归档](archive/plans/README.md)。
+
+## 实验保留范围
+
+保留代表性 `artifacts/smoke/`、centered 结构烟测、A0–A5 的 stage1/2/3、A5 finetune、旧主训练 best/latest/epoch 权重及其 sidecar、归一化统计、冻结均值身份、test-1000/test-200 报告、配对 bootstrap 累计量和最终展示图。旧失败实验也不盲删，以保留诊断链；整理目标是可读性而不是释放权重空间。
+
+`configs/` 中含 plan 字样的 JSON 是机器调度配置，仍属配置文件，不按文字计划书归档。`three_method_layout_demo` 是合成排版演示，不是测试结果；最终单区域图目录顶层的累计量属于单案例，200 样本来源以 `aggregate_source/` 或原始 `three_method_ep22_test200_e16_20260905/` 为准。
+
+## 备份与恢复
+
+整理前的本地源码快照在同级 `DiAFNO_readability_backup_20260905/`，服务器快照在 `/data2/user/zzx/exam_preprocessed/DiAFNO_readability_backup_20260905/`。快照保留整理前的未提交内容，不包括庞大实验权重；实验权重不改动。
+
+计划书的新路径为 `archive/plans/20260905/<原相对路径>`。原位置已移出，恢复时从归档复制指定文件即可，不要把整个备份盲目覆盖回项目。归档正文保持原样，其中相对链接或旧命令可能指向当时布局，查找配套文件以原相对路径为准。
 
 ## 原有使用说明（保留）
 
