@@ -232,6 +232,15 @@ python -u evaluate_ostia.py --prediction-dir inference_results --output-path eva
 
 Evaluation reports MAE, RMSE, bias and correlation overall and separately for forecast Day +1 through Day +15.
 
+## Three-method forecast figures and tables
+
+`scripts/compare_ostia_methods.py` evaluates paired DiAFNO ensemble,
+deterministic IAFNO and persistence forecasts. It exports 3-row × 4-column
+SST panels (Day 1/5/10/15) and five Markdown metric tables including
+overall Day 1–15, empirical CRPS and skill confidence intervals.
+See [the comparison runbook](docs/OSTIA_THREE_METHOD_COMPARISON_ZH.md)
+for checkpoint arguments, unit handling and reproducible sample selection.
+
 ## Tests
 
 The existing regression suite plus the new condition/checkpoint/runner
