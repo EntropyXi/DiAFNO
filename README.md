@@ -13,6 +13,7 @@
 ├── deterministic_iafno/  # 确定性残差基线与冻结均值的 centered diffusion 扩展
 ├── diafno/  # 日尺度 SST 的数据、模型、训练、验证和推理核心包
 ├── experiments/  # 训练权重、烟测、消融及验证测试结果，原路径保留（服务器产物）
+├── result/  # 三方法对比的代表性区域图与报告（对外展示快照）
 ├── scripts/  # 训练运行、烟测、验证监测、消融和结果整理工具
 ├── .gitignore  # 排除缓存、原始数据、权重和运行输出等非源码文件
 ├── evaluate_ostia.py  # 读取已保存的预测结果并汇总离线评估指标
