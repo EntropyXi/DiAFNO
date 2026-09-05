@@ -66,7 +66,19 @@ def _metric_row(payload):
         "seed": payload.get("seed"),
     }
     if bootstrap is not None:
-        row["bootstrap_skill_95ci"] = bootstrap
+        overall = bootstrap.get("overall") or {}
+        skill_ci = overall.get("mse_skill_ci")
+        rmse_diff_ci = overall.get("rmse_difference_ci")
+        row["bootstrap_skill_95ci"] = {
+            "mean": overall.get("mse_skill"),
+            "ci_low": skill_ci[0] if skill_ci else None,
+            "ci_high": skill_ci[1] if skill_ci else None,
+            "rmse_difference": overall.get("rmse_difference"),
+            "rmse_difference_ci": rmse_diff_ci,
+            "fraction_model_better": overall.get(
+                "bootstrap_fraction_model_better"
+            ),
+        }
     return row
 
 
@@ -181,11 +193,16 @@ def render_markdown(summary):
         for config_id, row in summary["bootstrap"].items():
             ci = row.get("bootstrap_skill_95ci")
             if isinstance(ci, dict):
+                diff_ci = ci.get("rmse_difference_ci") or [None, None]
                 lines.append(
-                    f"- **{config_id}**: skill mean "
-                    f"{_fmt(ci.get('mean'))}, CI "
+                    f"- **{config_id}**: skill "
+                    f"{_fmt(ci.get('mean'))}, 95% CI "
                     f"[{_fmt(ci.get('ci_low'))}, "
-                    f"{_fmt(ci.get('ci_high'))}]"
+                    f"{_fmt(ci.get('ci_high'))}]; RMSE diff vs "
+                    f"persistence {_fmt(ci.get('rmse_difference'))} "
+                    f"[{_fmt(diff_ci[0])}, {_fmt(diff_ci[1])}], "
+                    f"fraction better "
+                    f"{_fmt(ci.get('fraction_model_better'))}"
                 )
             else:
                 lines.append(f"- **{config_id}**: {ci}")

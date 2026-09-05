@@ -214,13 +214,22 @@ class SummaryGeneratorTests(OSTIATestCase):
                     0.62 - step * 1e-5,
                 )
         boot_a5 = os.path.join(root, "boot_a5.json")
-        payload = self._write_val(boot_a5, 0.61)
+        self._write_val(boot_a5, 0.61)
         with open(boot_a5, "r+", encoding="utf-8") as file:
             data = json.load(file)
             data["paired_block_bootstrap"] = {
-                "mean": 0.20,
-                "ci_low": 0.18,
-                "ci_high": 0.22,
+                "method": "paired_nonoverlapping_temporal_block_bootstrap",
+                "replicates": 1000,
+                "confidence_level": 0.95,
+                "overall": {
+                    "model_rmse": 0.61,
+                    "persistence_rmse": 0.71,
+                    "rmse_difference": -0.10,
+                    "rmse_difference_ci": [-0.13, -0.07],
+                    "mse_skill": 0.20,
+                    "mse_skill_ci": [0.18, 0.22],
+                    "bootstrap_fraction_model_better": 1.0,
+                },
             }
             file.seek(0)
             json.dump(data, file)
