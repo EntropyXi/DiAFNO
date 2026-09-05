@@ -12,7 +12,6 @@
 ├── configs/  # 正式训练与 A0–A5 架构消融的声明式配置
 ├── deterministic_iafno/  # 确定性残差基线与冻结均值的 centered diffusion 扩展
 ├── diafno/  # 日尺度 SST 的数据、模型、训练、验证和推理核心包
-├── docs/  # 仍有参考价值的实现说明、分析报告和项目导航
 ├── experiments/  # 训练权重、烟测、消融及验证测试结果，原路径保留
 ├── scripts/  # 训练运行、烟测、验证监测、消融和结果整理工具
 ├── tests/  # 数据契约、消融执行和三方法图表的回归测试
@@ -289,8 +288,6 @@ Evaluation reports MAE, RMSE, bias and correlation overall and separately for fo
 deterministic IAFNO and persistence forecasts. It exports 3-row × 4-column
 SST panels (Day 1/5/10/15) and five Markdown metric tables including
 overall Day 1–15, empirical CRPS and skill confidence intervals.
-See [the comparison runbook](docs/OSTIA_THREE_METHOD_COMPARISON_ZH.md)
-for checkpoint arguments, unit handling and reproducible sample selection.
 
 ## Tests
 
