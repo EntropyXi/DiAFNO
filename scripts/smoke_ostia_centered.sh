@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# 用途：在独立输出目录执行 centered diffusion 的 GPU 结构烟测。
 # ---------------------------------------------------------------------------
 # smoke_ostia_centered.sh
 #

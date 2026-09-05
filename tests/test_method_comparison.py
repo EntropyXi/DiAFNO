@@ -1,3 +1,4 @@
+# 用途：验证三方法指标、CRPS、选区及图表输出。
 import json
 from pathlib import Path
 import tempfile

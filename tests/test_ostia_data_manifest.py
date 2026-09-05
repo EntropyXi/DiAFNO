@@ -1,3 +1,4 @@
+# 用途：验证真实日期、缺日过滤与空间坐标 manifest。
 """Real-day data manifest + per-row patch coordinate layout tests.
 
 Covers the server facts: manifest-driven true day offsets with two

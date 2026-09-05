@@ -1,3 +1,4 @@
+# 用途：验证续训时配置和训练状态的恢复。
 import json
 import os
 import tempfile

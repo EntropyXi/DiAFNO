@@ -1,3 +1,4 @@
+# 用途：验证checkpoint 不可变字段与兼容性约束。
 import unittest
 from copy import deepcopy
 

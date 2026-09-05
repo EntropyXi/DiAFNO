@@ -1,3 +1,4 @@
+# 用途：按固定协议执行一个消融配置的烟测、短训或候选复核。
 """OSTIA spatiotemporal ablation stage runner (server-side).
 
 Executes one fixed stage (1/2/3 from the ablation plan) for one

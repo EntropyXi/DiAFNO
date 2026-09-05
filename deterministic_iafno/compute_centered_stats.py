@@ -1,3 +1,4 @@
+# 用途：只用训练集计算相对冻结均值的逐 lead 创新统计量。
 """Compute train-only centered innovation statistics for the frozen mean.
 
 Target space: normalized residual ``r = x_target - anchor`` (both

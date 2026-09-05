@@ -1,3 +1,4 @@
+# 用途：提供消融任务的配置、命令构造和安全检查公共函数。
 """Shared helpers for the OSTIA spatiotemporal ablation runner.
 
 Non-destructive by construction:

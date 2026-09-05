@@ -1,3 +1,4 @@
+# 用途：验证条件通道配置、checkpoint 语义及模型前后向。
 """Condition-schema config, checkpoint contracts and CPU forward/
 backward coverage for the three model types (plan section 6.2)."""
 

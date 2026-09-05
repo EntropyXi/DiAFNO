@@ -1,3 +1,4 @@
+# 用途：验证消融调度器与汇总器的纯逻辑。
 """Unit tests for the server-side ablation supervisor and the final
 summary generator (pure engine, no server needed)."""
 

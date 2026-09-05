@@ -1,3 +1,4 @@
+# 用途：保存预测张量、目标及索引等推理产物。
 import json
 import os
 

@@ -1,3 +1,4 @@
+# 用途：统一 SST、mask、位置和季节条件通道的顺序与版本。
 """Canonical OSTIA condition-mode channel contract.
 
 Single source of truth for every condition mode, its fixed channel

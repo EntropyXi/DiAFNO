@@ -1,3 +1,4 @@
+# 用途：验证centered 模型在 CPU 上的训练与恢复烟测。
 import os
 import shutil
 import unittest

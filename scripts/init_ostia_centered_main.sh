@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# 用途：初始化 centered 主训练配置产物，默认预览且拒绝覆盖。
 # Initialize the now-empty canonical main directory after verified archive.
 # Default is dry-run. Never overwrites an existing config artifact.
 set -euo pipefail

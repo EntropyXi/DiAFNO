@@ -1,3 +1,4 @@
+# 用途：读取推理文件，累计并输出离线 SST 指标。
 import glob
 import json
 import os

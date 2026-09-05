@@ -1,3 +1,4 @@
+# 用途：计算三方法配对指标并绘制三行四列 SST 图与 Markdown 表。
 """Paired three-method forecast scores, Markdown tables and 3 x 4 SST maps."""
 import json
 from pathlib import Path

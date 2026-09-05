@@ -1,3 +1,4 @@
+# 用途：遍历预测样本、执行模型采样并交给输出器保存。
 import torch
 from torch.amp import autocast
 from torch.utils.data import DataLoader

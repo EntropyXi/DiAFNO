@@ -1,3 +1,4 @@
+# 用途：构造满足时间、坐标与 mask 协议的合成 HDF5 测试夹具。
 """Shared builders for the OSTIA spatiotemporal ablation tests.
 
 The synthetic HDF5 files mirror the *proven* contract the data code

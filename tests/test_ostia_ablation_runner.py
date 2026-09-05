@@ -1,3 +1,4 @@
+# 用途：验证消融执行器的安全约束与统计量集成。
 """Ablation runner / probe non-destructive contracts and the lead-stats
 integration (plan sections 8, 10 and 12 local checks)."""
 

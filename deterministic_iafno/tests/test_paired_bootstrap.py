@@ -1,3 +1,4 @@
+# 用途：验证配对时间分块 bootstrap 的统计行为。
 import unittest
 
 import numpy as np

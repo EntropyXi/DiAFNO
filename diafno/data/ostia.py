@@ -1,3 +1,4 @@
+# 用途：从切块 HDF5 构造同区域的 7 日输入与 15 日目标样本。
 import hashlib
 import os
 import re

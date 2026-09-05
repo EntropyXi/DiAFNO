@@ -1,3 +1,4 @@
+# 用途：在配对样本上评估 DiAFNO、IAFNO 和 persistence 并输出图表。
 """Evaluate DiAFNO / deterministic IAFNO / persistence on paired samples.
 
 Outputs 3-row x 4-column Day 1/5/10/15 SST panels, PNG/PDF, a Markdown

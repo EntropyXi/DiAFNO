@@ -1,3 +1,4 @@
+# 用途：验证旧扩散损失的兼容性与数值行为。
 import unittest
 
 import torch

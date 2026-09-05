@@ -1,3 +1,4 @@
+# 用途：解析在线验证的样本、采样、设备及输出配置。
 import argparse
 from dataclasses import dataclass
 from typing import Optional

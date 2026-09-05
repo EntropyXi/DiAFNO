@@ -1,3 +1,4 @@
+# 用途：解析批量预测的 checkpoint、数据和保存配置。
 import argparse
 from dataclasses import dataclass
 from typing import Optional

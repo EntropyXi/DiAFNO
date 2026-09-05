@@ -1,3 +1,4 @@
+# 用途：按声明式任务依赖调度消融并记录状态，不作为训练入口自动运行。
 """Server-side non-destructive ablation supervisor.
 
 Watches declarative pipeline tasks, launches each one exactly when its

@@ -1,3 +1,4 @@
+# 用途：验证逐 lead 统计文件与命令行输入校验。
 import unittest
 
 from diafno.training.config import (

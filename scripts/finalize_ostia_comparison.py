@@ -1,3 +1,4 @@
+# 用途：选择一个展示区域，同时保留完整样本总体指标与来源记录。
 """Select one illustrative region while retaining ALL-sample metric tables.
 
 Requires a completed paired evaluation. Selection is explicitly recorded in

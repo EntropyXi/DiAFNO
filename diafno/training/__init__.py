@@ -1,3 +1,4 @@
+# 用途：声明 diafno.training 包并组织公共接口。
 from .config import (
     OSTIAModelConfig,
     OSTIATrainingConfig

@@ -1,3 +1,4 @@
+# 用途：验证确定性残差模型的前向及损失。
 import unittest
 
 import torch

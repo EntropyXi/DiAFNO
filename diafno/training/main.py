@@ -1,3 +1,4 @@
+# 用途：连接配置解析与训练器，提供训练模块入口。
 from .config import (
     build_parser,
     merge_config_json,

@@ -1,3 +1,4 @@
+# 用途：执行模型或 persistence 预测、条件消融及分 lead 评分。
 import json
 import os
 

@@ -1,3 +1,4 @@
+# 用途：提供已保存预测文件的离线评估命令入口。
 import argparse
 import json
 

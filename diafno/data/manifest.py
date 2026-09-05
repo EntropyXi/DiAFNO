@@ -1,3 +1,4 @@
+# 用途：校验真实日期 manifest，约束缺日过滤与数据来源。
 """OSTIA real-day data-manifest contract.
 
 The patched training HDF5 stores one row per (compact day, spatial

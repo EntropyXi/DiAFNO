@@ -1,3 +1,4 @@
+# 用途：快照并验证已完成 epoch 的权重，维护验证 RMSE 最优模型。
 """Offline epoch watcher for the residual fine-tune run (plan v2.1, sec 1.6).
 
 Snapshots latest.pth after each completed epoch, validates the snapshot on a

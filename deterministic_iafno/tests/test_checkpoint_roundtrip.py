@@ -1,3 +1,4 @@
+# 用途：验证模型及优化器 checkpoint 的保存恢复。
 import os
 import shutil
 import unittest

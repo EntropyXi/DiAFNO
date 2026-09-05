@@ -1,3 +1,4 @@
+# 用途：只读审计 HDF5 的时间、坐标与形状并生成数据 manifest。
 """Read-only OSTIA HDF5 audit / manifest tool (plan section 7).
 
 Inspects an OSTIA daily HDF5 without writing to it and records a JSON

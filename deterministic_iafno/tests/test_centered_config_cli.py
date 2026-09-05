@@ -1,3 +1,4 @@
+# 用途：验证centered 配置与命令行参数校验。
 import json
 import os
 import unittest

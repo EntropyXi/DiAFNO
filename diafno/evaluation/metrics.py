@@ -1,3 +1,4 @@
+# 用途：累计有效像素的 SST 误差、相关系数及 persistence skill。
 import math
 
 import numpy as np

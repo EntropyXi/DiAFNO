@@ -1,3 +1,4 @@
+# 用途：管理训练集标准化统计量及张量变换。
 import json
 import os
 

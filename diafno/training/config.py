@@ -1,3 +1,4 @@
+# 用途：解析训练参数并校验配置、统计量和恢复训练约束。
 import argparse
 import json
 import math

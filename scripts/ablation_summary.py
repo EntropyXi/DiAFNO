@@ -1,3 +1,4 @@
+# 用途：汇总短训消融、阶段复评和配对 bootstrap 结果。
 """Final ablation comparison summary generator (read-only).
 
 Aggregates the Stage-2 quick screen (val-200), the Stage-3

@@ -1,3 +1,4 @@
+# 用途：验证centered 模型保存与恢复的一致性。
 import os
 import shutil
 import unittest

@@ -1,3 +1,4 @@
+# 用途：验证位置季节通道、日期边界与读取一致性。
 """Geo-season condition channels: values, order, dateline, calendars,
 leap/cross-year windows, fail-closed date/geometry rules, fast-path
 parity and legacy-mode regression (tests for plan section 6.1)."""

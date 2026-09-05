@@ -1,3 +1,4 @@
+# 用途：用合成输入测量 A0–A5 架构的显存与吞吐。
 """Non-destructive per-architecture VRAM / throughput probe.
 
 For every ablation configuration (A0..A5) and each micro-batch in

@@ -1,3 +1,4 @@
+# 用途：定义和校验 checkpoint 的模型、数据及续训语义。
 import json
 import os
 

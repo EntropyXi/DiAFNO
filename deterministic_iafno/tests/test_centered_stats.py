@@ -1,3 +1,4 @@
+# 用途：验证创新统计量和来源校验规则。
 import json
 import os
 import shutil

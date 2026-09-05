@@ -1,3 +1,4 @@
+# 用途：验证逐 lead 残差统计量计算。
 import unittest
 
 import numpy as np
