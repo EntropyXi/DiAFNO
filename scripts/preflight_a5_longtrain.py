@@ -138,6 +138,13 @@ def verify_model_fields_against_source(
             return container.get(field)
         return getattr(container, field, None)
 
+    def _normalize(value):
+        # JSON round-trips dataclass tuples into lists; compare the two
+        # shapes on the same footing instead of failing on tuple-vs-list.
+        if isinstance(value, (list, tuple)):
+            return tuple(_normalize(item) for item in value)
+        return value
+
     fields = (
         "input_days",
         "output_days",
@@ -158,7 +165,7 @@ def verify_model_fields_against_source(
     for field in fields:
         current = _value(target_model_config, field)
         source = source_sidecar_config.get(field)
-        if current != source:
+        if _normalize(current) != _normalize(source):
             raise ValueError(
                 f"target config {field}={current!r} differs from the "
                 f"source sidecar {field}={source!r}"
