@@ -35,6 +35,10 @@ from scripts.preflight_a5_longtrain import (
     require_fresh_output_dir,
     verify_source_checkpoint,
 )
+from scripts.validate_a5_epochs import (
+    cumulative_training_steps,
+    list_candidates,
+)
 
 
 _H5_COUNTER = [0]
@@ -373,6 +377,40 @@ class CandidateSelectionTests(unittest.TestCase):
         ]
         best = select_best_val_rmse(candidates)
         self.assertEqual(best["source"], "source.pth")
+
+
+class EpochValSelectionDriverTests(unittest.TestCase):
+    """The per-epoch validation driver's pure helpers (plan 4.2 / 5)."""
+
+    def test_list_candidates_source_first_and_sidecar_gated(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            train_dir = os.path.join(tmp, "train")
+            os.makedirs(train_dir)
+            # epoch_001 complete (checkpoint + sidecar), epoch_002
+            # checkpoint only (still being written -> excluded).
+            for name in ("epoch_001.pth", "epoch_001.pth.semantics.json",
+                         "epoch_002.pth", "latest.pth"):
+                with open(os.path.join(train_dir, name), "w",
+                          encoding="utf-8") as file:
+                    file.write("x")
+            source = os.path.join(tmp, "source.pth")
+            candidates = list_candidates(source, train_dir, num_epochs=30)
+            self.assertEqual(
+                [label for label, _ in candidates],
+                ["source_epoch011", "epoch_001"],
+            )
+            self.assertEqual(candidates[0][1], os.path.abspath(source))
+
+    def test_cumulative_training_steps(self):
+        self.assertEqual(
+            cumulative_training_steps("source_epoch011", {}), 2750
+        )
+        self.assertEqual(
+            cumulative_training_steps(
+                "epoch_007", {"global_step": 1750}
+            ),
+            2750 + 1750,
+        )
 
 
 class ResumeAndLRGeometryTests(OSTIATestCase):
