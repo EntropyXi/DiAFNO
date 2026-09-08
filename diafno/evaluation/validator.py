@@ -16,6 +16,10 @@ from ..data.ostia import (
 from ..inference.model import InferenceModelLoader
 from .bootstrap import paired_temporal_block_bootstrap
 from .metrics import RunningSSTMetrics, persistence_skill
+from .sample_manifest import (
+    load_sample_manifest,
+    manifest_dataset_indices,
+)
 
 
 class OSTIAValidator:
@@ -31,6 +35,8 @@ class OSTIAValidator:
         self.dataset = None
         self.loader = None
         self.amp_enabled = False
+        self.sample_manifest = None
+        self._bootstrap_time_axis = None
 
     # 用途：构造固定可复现的验证样本索引（均匀抽样或指定子集）。
     # 参数：无输入（读配置）；输出 样本索引数组。
@@ -162,7 +168,24 @@ class OSTIAValidator:
             self.model_config,
         )
         self._check_normalization()
+        self.sample_manifest = None
         indices = self._build_indices()
+        if self.config.sample_manifest is not None:
+            payload = load_sample_manifest(
+                self.config.sample_manifest,
+                split=self.config.split,
+                expected_count=(
+                    None
+                    if self.config.max_samples is None
+                    else self.config.max_samples
+                ),
+                dataset_size=len(self.dataset),
+            )
+            indices = manifest_dataset_indices(payload)
+            self.sample_manifest = {
+                "path": os.path.abspath(self.config.sample_manifest),
+                "manifest_sha256": payload["manifest_sha256"],
+            }
         validation_data = (
             self.dataset
             if indices is None
@@ -526,13 +549,31 @@ class OSTIAValidator:
                 paired_valid_counts.append(
                     valid.sum(axis=(2, 3), dtype=np.int64)
                 )
-                paired_initialization_times.append(
-                    batch["metadata"]["input_start_time"]
-                    .detach()
-                    .cpu()
-                    .numpy()
-                    .astype(np.int64, copy=False)
-                )
+                # Prefer the real-day initialization axis when the
+                # dataset is bound to an upstream data manifest; the
+                # compact axis stays the fallback so legacy runs are
+                # unchanged.
+                if (
+                        getattr(self.dataset, "has_real_day_axis", False)
+                        and "real_t0_day_offset" in batch["metadata"]
+                    ):
+                    paired_initialization_times.append(
+                        batch["metadata"]["real_t0_day_offset"]
+                        .detach()
+                        .cpu()
+                        .numpy()
+                        .astype(np.int64, copy=False)
+                    )
+                    self._bootstrap_time_axis = "real_day_offset_t0"
+                else:
+                    paired_initialization_times.append(
+                        batch["metadata"]["input_start_time"]
+                        .detach()
+                        .cpu()
+                        .numpy()
+                        .astype(np.int64, copy=False)
+                    )
+                    self._bootstrap_time_axis = "compact_input_start"
             overall.update(prediction, target, target_mask)
             residual_overall.update(
                 prediction_residual,
@@ -599,6 +640,7 @@ class OSTIAValidator:
             },
             "condition_ablation": self.config.condition_ablation,
             "seed": self.config.seed,
+            "sample_manifest": self.sample_manifest,
             "overall": overall_result,
             "by_lead_day": by_lead_result,
             "residual_overall": residual_overall_result,
@@ -640,10 +682,21 @@ class OSTIAValidator:
                     ),
                     seed=self.config.bootstrap_seed,
                     block_origin_time=(
-                        self.dataset.first_time
-                        + self.dataset.split_start_day
+                        self.dataset.real_day_offset(
+                            self.dataset.split_start_day
+                            + self.model_config.input_days - 1
+                        )
+                        if self._bootstrap_time_axis
+                        == "real_day_offset_t0"
+                        else (
+                            self.dataset.first_time
+                            + self.dataset.split_start_day
+                        )
                     ),
                 )
+            )
+            result["bootstrap_time_axis"] = (
+                self._bootstrap_time_axis
             )
         self._save_result(result)
         print(json.dumps(result, ensure_ascii=False, indent=2))

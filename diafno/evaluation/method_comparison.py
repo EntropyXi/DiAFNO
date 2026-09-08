@@ -1,5 +1,5 @@
-# 用途：计算三方法配对指标并绘制三行四列 SST 图与 Markdown 表。
-"""Paired three-method forecast scores, Markdown tables and 3 x 4 SST maps."""
+# 用途：计算三方法配对指标，并绘制含真值的四行四列 SST 图与 Markdown 表。
+"""Paired forecast scores, Markdown tables and ground-truth + forecast SST maps."""
 import json
 from pathlib import Path
 
@@ -179,7 +179,7 @@ def write_markdown(report, path):
             values = [method, *[number(m[k]) for k in ("rmse", "mse", "mae", "bias", "correlation", "crps")], percent(m["mse_skill"]), interval(m["mse_skill_95ci"]), percent(m["crps_skill"]), interval(m["crps_skill_95ci"])]
             lines.append("| " + " | ".join(values) + " |")
         lines.append("")
-    lines += ["## 预测图", "", "每张图固定一个区域与初始化时间，三行依次为 DiAFNO、IAFNO、persistence，四列为 Day 1/5/10/15。图中 DiAFNO 显示集合均值。所有图共享 SST 色标；灰色为对应预测日的无效目标像素。", ""]
+    lines += ["## 预测图", "", "每张图固定一个区域与初始化时间，四行依次为 Ground Truth、DiAFNO、IAFNO、persistence，四列为 Day 1/5/10/15。图中 DiAFNO 显示集合均值。真值与预测统一使用 turbo 配色和同一线性色标，范围覆盖全部展示面板的有效 SST；不截断分位数、不对各方法独立拉伸。灰色为对应预测日的无效目标像素。", ""]
     for image in report.get("figures", []):
         caption = report.get("figure_caption", image)
         lines += [f"![{caption}]({image})", "", caption, ""]
@@ -187,43 +187,51 @@ def write_markdown(report, path):
     Path(path).write_text("\n".join(lines), encoding="utf-8")
 
 
-# 用途：绘制三方法 Day 1/5/10/15 预报面板图。
+# 用途：绘制 Ground Truth 与三方法 Day 1/5/10/15 的共享色标面板图。
 # 参数：输入 cases（选样）、output_dir（输出目录）、unit（单位）、dpi、title_prefix；输出 无。
 def draw_forecasts(cases, output_dir, unit="source units", dpi=250, title_prefix=""):
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     output_dir = Path(output_dir)
+    panel_keys = ("target", *METHODS)
+    panel_labels = ("Ground Truth", *LABELS)
     # All methods, days and regions use the same scale. No resampling,
     # interpolation, percentile clipping, or per-method autoscaling.
     lo, hi = np.inf, -np.inf
     for case in cases:
+        expected_shape = np.asarray(case["target_mask"]).shape
+        if len(expected_shape) != 3 or expected_shape[0] < max(LEADS):
+            raise ValueError("Plot mask must have [lead,H,W] shape with at least 15 days")
+        for key in panel_keys:
+            if key not in case or np.asarray(case[key]).shape != expected_shape:
+                raise ValueError(f"Missing or mismatched plotted field: {key}")
         for lead in LEADS:
             valid = case["target_mask"][lead - 1] > 0
-            for method in METHODS:
-                values = case[method][lead - 1][valid]
+            for key in panel_keys:
+                values = case[key][lead - 1][valid]
                 if values.size:
                     if not np.isfinite(values).all():
-                        raise ValueError("Nonfinite plotted ocean prediction")
+                        raise ValueError(f"Nonfinite plotted ocean field: {key}")
                     lo, hi = min(lo, values.min()), max(hi, values.max())
     if not np.isfinite([lo, hi]).all():
         raise ValueError("No valid pixels to plot")
     if lo == hi:
         lo, hi = lo - 0.5, hi + 0.5
-    cmap = plt.get_cmap("viridis").copy()
+    cmap = plt.get_cmap("turbo").copy()
     cmap.set_bad("#d0d0d0")
     images = []
     for index, case in enumerate(cases):
-        fig, axes = plt.subplots(3, 4, figsize=(12, 8.6), layout="constrained")
-        for row, (method, label) in enumerate(zip(METHODS, LABELS)):
+        fig, axes = plt.subplots(4, 4, figsize=(12, 11.2), layout="constrained")
+        for row, (key, label) in enumerate(zip(panel_keys, panel_labels)):
             for col, lead in enumerate(LEADS):
                 ax = axes[row, col]
-                values = np.ma.array(case[method][lead - 1], mask=case["target_mask"][lead - 1] <= 0)
+                values = np.ma.array(case[key][lead - 1], mask=case["target_mask"][lead - 1] <= 0)
                 im = ax.imshow(values, cmap=cmap, vmin=lo, vmax=hi, origin="upper", interpolation="nearest")
                 if row == 0:
                     ax.set_title(f"Day {lead}", fontsize=12, fontweight="bold")
                 ax.set_ylabel(label + "\nY (pixel)" if col == 0 else "")
-                if row == 2:
+                if row == len(panel_keys) - 1:
                     ax.set_xlabel("X (pixel)")
                 ax.tick_params(labelsize=7)
         metadata = case["metadata"]

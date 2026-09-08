@@ -221,6 +221,10 @@ class OSTIADailyDataset(Dataset):
             self._manifest = load_data_manifest(
                 self.data_manifest_path
             )
+        # True per-day offsets under the data manifest (None outside
+        # manifest mode); see ``has_real_day_axis`` and
+        # ``real_day_offset``.
+        self._real_day_offsets = None
         # Decoded date semantics: None for legacy modes that never
         # needed calendar information; filled fail-closed for the
         # geo-season mode only.
@@ -245,6 +249,13 @@ class OSTIADailyDataset(Dataset):
         self._inspect_file()
         if self._manifest is not None:
             self._validate_manifest_identity()
+            # Bind the true per-day offset axis once the manifest has
+            # passed validation; sample metadata and validation
+            # bootstrap can then use real day semantics.
+            self._real_day_offsets = np.asarray(
+                self._manifest["day_offsets"],
+                dtype=np.int64,
+            )
             if self.condition_mode != "sst_mask_geo_season":
                 self._resolve_time_semantics()
         self._resolve_static_geometry()
@@ -749,6 +760,31 @@ class OSTIADailyDataset(Dataset):
                 days=self.first_time + ordinal
             )
         return self._ref_date + timedelta(days=ordinal)
+
+    # 用途：manifest 模式下返回某紧凑日序数的真实日偏移（否则 None）。
+    # 参数：输入 ordinal（紧凑日序数）；输出 真实日偏移 int 或 None。
+    def real_day_offset(self, ordinal):
+        """True daily offset of a compact ordinal under the data
+        manifest, or None when no manifest is in use."""
+        if self._real_day_offsets is None:
+            return None
+        return int(self._real_day_offsets[int(ordinal)])
+
+    # 用途：manifest 模式下返回真实日偏移数组（只读）；否则 None。
+    # 参数：无输入；输出 np.ndarray 或 None。
+    @property
+    def real_day_offsets(self):
+        """The manifest's true day-offset array (read-only), else None."""
+        if self._real_day_offsets is None:
+            return None
+        return self._real_day_offsets
+
+    # 用途：报告本数据集是否有真实日偏移轴（即 manifest 模式）。
+    # 参数：无输入；输出 bool。
+    @property
+    def has_real_day_axis(self):
+        """True when per-day true offsets exist (data-manifest mode)."""
+        return self._real_day_offsets is not None
 
     # 用途：数据清单证明的坐标单位（如无则 None）。
     # 参数：输入 name（'lat'/'lon'）；输出 单位字符串或 None。
@@ -1527,6 +1563,20 @@ class OSTIADailyDataset(Dataset):
                 ),
                 "target_end_time": np.int64(times[-1])
             }
+            if self.has_real_day_axis:
+                # Real (manifest day_offsets) time axis, kept strictly
+                # separate from the compact *_time fields above.
+                # compact_window_start_day is the compact ordinal of
+                # the 7-day input's first day; real_t0_day_offset is
+                # the true offset of the initialization day (day 7).
+                metadata["compact_window_start_day"] = np.int64(
+                    start_day
+                )
+                metadata["real_t0_day_offset"] = np.int64(
+                    self._real_day_offsets[
+                        start_day + self.input_days - 1
+                    ]
+                )
             samples.append(
                 {
                     "condition": torch.from_numpy(condition),

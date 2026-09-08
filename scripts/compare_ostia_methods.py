@@ -1,7 +1,7 @@
 # 用途：在配对样本上评估 DiAFNO、IAFNO 和 persistence 并输出图表。
 """Evaluate DiAFNO / deterministic IAFNO / persistence on paired samples.
 
-Outputs 3-row x 4-column Day 1/5/10/15 SST panels, PNG/PDF, a Markdown
+Outputs 4-row x 4-column ground-truth/forecast SST panels, PNG/PDF, a Markdown
 report and machine-readable scores. Uses existing checkpoint/data contracts.
 """
 import argparse
@@ -75,7 +75,7 @@ def render_existing(directory, dpi):
     cases = []
     for path in sorted(directory.glob("case_*.npz")):
         with np.load(path, allow_pickle=False) as data:
-            case = {key: data[key].copy() for key in (*METHODS, "target_mask")}
+            case = {key: data[key].copy() for key in (*METHODS, "target_mask", "target")}
             case["metadata"] = json.loads(str(data["metadata_json"].item()))
             cases.append(case)
     if not cases:
@@ -205,9 +205,9 @@ def main():
         scores.update(forecasts, target, mask, metadata["input_start_time"])
         if position in plot_positions:
             case = {method: np.where(mask > 0, forecasts[method].mean(axis=0, dtype=np.float64), np.nan).astype(np.float32) for method in METHODS}
-            case.update(target_mask=mask, metadata=metadata)
+            case.update(target_mask=mask, target=target, metadata=metadata)
             cases.append(case)
-            np.savez_compressed(out / f"case_{position:06d}.npz", **{k: v for k, v in case.items() if k != "metadata"}, target=target, metadata_json=np.asarray(json.dumps(metadata)))
+            np.savez_compressed(out / f"case_{position:06d}.npz", **{k: v for k, v in case.items() if k != "metadata"}, metadata_json=np.asarray(json.dumps(metadata)))
         del forecasts
     if len(scores.times) != count:
         raise RuntimeError("Incomplete paired data iteration")

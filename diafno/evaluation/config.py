@@ -16,6 +16,10 @@ class OSTIAValidationConfig:
     # Upstream data manifest required by any checkpoint bound to the
     # shared real-day, gap-filtered sample universe.
     data_manifest: Optional[str] = None
+    # Frozen physical sample manifest (see
+    # ``diafno.evaluation.sample_manifest``); when given, the validator
+    # evaluates exactly its entries instead of drawing fresh indices.
+    sample_manifest: Optional[str] = None
     batch_size: int = 1
     num_workers: int = 2
     sampling_steps: Optional[int] = None
@@ -49,6 +53,7 @@ class OSTIAValidationConfig:
             split=args.split,
             condition_mode=args.condition_mode,
             data_manifest=args.data_manifest,
+            sample_manifest=getattr(args, "sample_manifest", None),
             batch_size=args.batch_size,
             num_workers=args.num_workers,
             sampling_steps=args.sampling_steps,
@@ -101,6 +106,16 @@ def build_validation_parser():
         help=(
             "upstream data manifest (required when the checkpoint "
             "was trained with one)"
+        )
+    )
+    parser.add_argument(
+        "--sample-manifest",
+        default=None,
+        help=(
+            "frozen physical sample manifest (see "
+            "diafno.evaluation.sample_manifest); when given, exactly "
+            "its entries are validated and its split/identity must "
+            "match this evaluation"
         )
     )
     parser.add_argument("--batch-size", type=int, default=1)

@@ -35,7 +35,7 @@ def create_layout_demo(output):
         forecasts = dict(DiAFNO=members, IAFNO=det[None], persistence=persistence[None])
         scores.update(forecasts, target, mask, sample * 30)
         case = {method: forecasts[method].mean(axis=0) for method in METHODS}
-        case.update(target_mask=mask, metadata=dict(spatial_index=sample, input_start_time=sample * 30))
+        case.update(target=target, target_mask=mask, metadata=dict(spatial_index=sample, input_start_time=sample * 30))
         cases.append(case)
     report = dict(num_samples=3, provenance=dict(split="SYNTHETIC DEMO — not experiment results", ensemble_members=8, sst_unit="degC", block_days=22, bootstrap_replicates=100), metrics=scores.compute(origin=0, replicates=100))
     report["figures"] = draw_forecasts(cases[:1], output, "degC", dpi=100, title_prefix="SYNTHETIC LAYOUT DEMO | ")
@@ -147,8 +147,35 @@ class ComparisonTests(unittest.TestCase):
             text = (out / "REPORT.md").read_text(encoding="utf-8")
             self.assertEqual(text.count("| forecast |"), 5)
             self.assertIn("CRPS skill 95% CI", text)
+            self.assertIn("Ground Truth", text)
+            self.assertIn("turbo", text)
             self.assertTrue((out / "forecast_region_000.png").exists())
             self.assertTrue((out / "forecast_region_000.pdf").exists())
+
+    # 用途：验证真值位于首行，且所有面板共用包含真值极值的色标。
+    def test_ground_truth_row_and_shared_scale(self):
+        import matplotlib.pyplot as plt
+        target = np.full((15, 2, 2), 290.0)
+        target[0, 0, 0], target[14, 1, 1] = 280.0, 305.0
+        case = {method: np.full_like(target, 295.0) for method in METHODS}
+        case.update(target=target, target_mask=np.ones_like(target),
+                    metadata=dict(spatial_index=0, input_start_time=0))
+        with tempfile.TemporaryDirectory() as temp:
+            with patch("matplotlib.figure.Figure.savefig"), patch("matplotlib.pyplot.close"):
+                draw_forecasts([case], temp, "K")
+                fig = plt.gcf()
+            try:
+                self.assertEqual(len(fig.axes), 17)  # 16 panels + one colorbar.
+                self.assertIn("Ground Truth", fig.axes[0].get_ylabel())
+                np.testing.assert_array_equal(fig.axes[0].images[0].get_array(), target[0])
+                for ax in fig.axes[:16]:
+                    self.assertEqual(ax.images[0].get_clim(), (280.0, 305.0))
+                    self.assertEqual(ax.images[0].get_cmap().name, "turbo")
+            finally:
+                plt.close(fig)
+            case["target"][0, 0, 0] = np.nan
+            with self.assertRaisesRegex(ValueError, "Nonfinite.*target"):
+                draw_forecasts([case], temp, "K")
 
     # 用途：验证真实小 checkpoint+HDF5 的端到端流程。
     # 参数：无输入（unittest 夹具自建合成数据）；输出 无（断言失败即抛异常）。
