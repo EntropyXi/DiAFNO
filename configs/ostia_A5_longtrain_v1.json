@@ -1,5 +1,4 @@
 {
-  "_comment": "A5 long training stage config (plans/A5_LONGTRAIN_TEST200_20260908.md). Fixed values: blocks=1 (winner override of the A5 template placeholder 2), patch [4,4,1], implicit_layer 4; embed_dim=128 and explicit_layer=4 are dataclass defaults (no JSON/CLI key exists) and are checked against the source sidecar by scripts/preflight_a5_longtrain.py. init_from is NOT a config-JSON key: it is always passed on the CLI (the long-run resume switches to --resume).",
   "train_h5_path": "/data2/user/zzx/exam_preprocessed_data/ocean_temperature_data_patched.h5",
   "output_dir": "experiments/a5_longtrain_v1_20260908/train",
   "data_manifest_path": "artifacts/ostia_data_manifest_real.json",
