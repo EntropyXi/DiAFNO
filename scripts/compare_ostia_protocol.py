@@ -451,7 +451,10 @@ def main():
             values = preds[method]
             if values.shape != target.shape or not np.isfinite(values).all():
                 raise ValueError(f"invalid prediction: {method}")
-        real_t0 = int(entry["real_t0_day_offset"])
+        # Real t0 = day_offsets[compact window start + 6] (plan 6.2).
+        real_t0 = int(
+            real_offsets[int(entry["compact_start"]) + 6]
+        )
         block_id = int((real_t0 - origin) // args.block_days)
         contributions["times_real_t0"].append(real_t0)
         contributions["dataset_index"].append(dataset_index)
