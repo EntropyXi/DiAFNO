@@ -76,6 +76,7 @@ def main():
     parser.add_argument("--final-output", required=True)
     parser.add_argument("--sizes", default="8192,16384,32768,65536")
     parser.add_argument("--batch-size", type=int, default=64)
+    parser.add_argument("--num-workers", type=int, default=4)
     parser.add_argument("--device", default=None)
     parser.add_argument("--input-days", type=int, default=7)
     parser.add_argument("--output-days", type=int, default=15)
@@ -110,6 +111,7 @@ def main():
             use_amp=False,
             data_manifest=args.data_manifest,
             master_indices_size=args.master_size,
+            num_workers=args.num_workers,
         )
         validate_centered_stats_payload(
             payload,

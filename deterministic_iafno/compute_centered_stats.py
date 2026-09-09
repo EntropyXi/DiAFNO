@@ -155,6 +155,7 @@ def compute_centered_stats(
         use_amp,
         data_manifest=None,
         master_indices_size=65536,
+        num_workers=2,
     ):
     started = time.time()
     model, model_config, mean_immutable = load_frozen_mean(
@@ -220,19 +221,25 @@ def compute_centered_stats(
         )
     accumulator = LeadStatsAccumulator(output_days)
     model_device = next(model.parameters()).device
+    from torch.utils.data import DataLoader, Subset
 
-    for start in range(0, len(indices), batch_size):
-        batch_indices = indices[start:start + batch_size]
-        samples = dataset.__getitems__(batch_indices.tolist())
-        condition = torch.stack([
-            sample["condition"] for sample in samples
-        ]).to(model_device)
-        target = torch.stack([
-            sample["target"] for sample in samples
-        ]).to(model_device)
-        target_mask = torch.stack([
-            sample["target_mask"] for sample in samples
-        ]).numpy()
+    loader_options = {
+        "batch_size": batch_size,
+        "shuffle": False,
+        "drop_last": False,
+        "num_workers": int(num_workers),
+        "pin_memory": False,
+    }
+    if int(num_workers) > 0:
+        loader_options["persistent_workers"] = True
+    loader = DataLoader(
+        Subset(dataset, indices.tolist()),
+        **loader_options,
+    )
+    for batch in loader:
+        condition = batch["condition"].to(model_device)
+        target = batch["target"].to(model_device)
+        target_mask = batch["target_mask"].numpy()
         anchor = condition[
             :,
             input_days - 1:input_days,
