@@ -333,7 +333,7 @@ def main():
     )
     old_diafno = ProtocolValidator(
         args.old_diafno_checkpoint, args.h5_path, args.data_manifest,
-        device, ensemble_members=args.ensemble_members,
+        device, ensemble_members=1,
         sampling_steps=args.sampling_steps,
         s_churn=args.s_churn,
         use_amp=not args.no_amp,
@@ -507,6 +507,11 @@ def main():
         for method in methods:
             per_sample["sse"][method].append(sample_sse[method])
             per_sample["crps"][method].append(sample_crps[method])
+        if (position + 1) % 10 == 0 or position + 1 == len(indices):
+            print(
+                f"[test200] {position + 1}/{len(indices)} samples done",
+                flush=True,
+            )
 
     np.savez(
         output_dir / "paired_contributions.npz",
