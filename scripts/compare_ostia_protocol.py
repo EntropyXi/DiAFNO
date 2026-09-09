@@ -75,7 +75,7 @@ class ProtocolValidator:
 
     def __init__(self, checkpoint_path, h5_path, data_manifest,
                  device, ensemble_members=1, sampling_steps=16,
-                 s_churn=0.0, use_amp=True):
+                 s_churn=None, use_amp=True):
         (
             self.model,
             self.model_config,
