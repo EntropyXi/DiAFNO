@@ -8,6 +8,7 @@ from typing import Optional, Tuple
 
 from ..models.config import OSTIAModelConfig
 from deterministic_iafno.centered_stats import (
+    V2_MEAN_CONDITION_MODE,
     validate_centered_stats_payload,
 )
 
@@ -498,6 +499,29 @@ def _apply_centered_config_rules(config, explicit_resume_fields):
                 "mean_semantics_sha256",
             )
         )
+        # The stats protocol and the run must use the same condition
+        # contract: a v2 (sst_mask_geo_season) stats file can never be
+        # consumed by an sst_mask run (and vice versa), and a
+        # geo-season run must bind the upstream data manifest so the
+        # training universe equals the stats/mean sample universe.
+        stats_condition_mode = stats.get("condition_mode")
+        if stats_condition_mode != config.condition_mode:
+            raise ValueError(
+                "centered stats condition_mode="
+                f"{stats_condition_mode!r} does not match the training "
+                f"condition_mode={config.condition_mode!r}; the "
+                "centered stats protocol and the run must share one "
+                "condition/sample-universe contract"
+            )
+        if (
+                stats_condition_mode == V2_MEAN_CONDITION_MODE
+                and config.data_manifest_path is None
+            ):
+            raise ValueError(
+                "geo-season centered stats require --data-manifest so "
+                "the training universe matches the frozen mean and the "
+                "stats sample universe"
+            )
     if (
             config.resume_path is None
             and config.mean_checkpoint_path is None
