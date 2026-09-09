@@ -20,6 +20,37 @@ LOCKED_MEAN_CHECKPOINT_SHA256 = (
     "cb09b15ce97e11800b83fcf7c8ef9df09aa47f8831a0a36fffa987e413fc53e6"
 )
 
+# v2 (A5-geo-season) frozen deterministic mean identity
+# (experiments/a5_longtrain_v1_20260908/validation/best_val_rmse.pth,
+# A5 long-run best epoch_030).  The v1 lock above is never changed:
+# every stats payload resolves to exactly one protocol and its own
+# locked mean identity (A5_CENTERED_DIAFNO_MAINTRAIN plan 5).
+A5_LOCKED_MEAN_CHECKPOINT_SHA256 = (
+    "4ce4984fe4b2e11748ca9bcacdedf0accc174a2721cf43b49167833f47c609bc"
+)
+
+CENTERED_STATS_SCHEMA_VERSION = 2
+
+V1_MEAN_CONDITION_MODE = "sst_mask"
+V2_MEAN_CONDITION_MODE = "sst_mask_geo_season"
+V2_MEAN_COND_CHANS = 14
+
+# v2 requires the frozen-mean sidecar to prove the geo-season data
+# contract (condition schema, calendar, time axis, manifest identity);
+# their exact values are bound by mean_semantics_sha256, presence is
+# checked explicitly so an 8-channel legacy mean can never pass as the
+# A5 mean.
+V2_SIDECAR_PRESENCE_FIELDS = (
+    "condition_mode",
+    "condition_schema_version",
+    "condition_channel_names",
+    "calendar_encoding",
+    "time_units_reference",
+    "geospatial_summary",
+    "time_axis_summary",
+    "data_manifest_sha256",
+)
+
 CENTERED_TARGET_SPACE = "normalized_centered_residual"
 
 # Keys that would betray val/test contamination; the payload must not
@@ -56,6 +87,46 @@ MEAN_ARCH_FIELDS = (
     "implicit_layer",
     "hidden_size_factor",
 )
+
+
+# 用途：按载荷声明的 schema 版本与条件模式解析 centered 协议（v1 旧 / v2 A5-geo）。
+# 参数：输入 stats（统计载荷）；输出 协议 spec dict（不匹配抛 ValueError）。
+def centered_protocol_spec(stats):
+    """Resolve the centered protocol (v1 legacy or v2 A5-geo-season).
+
+    Version/condition pairs are exact and fail closed: v1 payloads
+    declare schema_version 1 (or omit it) with condition_mode
+    'sst_mask' and stay locked to the original frozen mean identity;
+    v2 payloads must declare schema_version 2 with
+    'sst_mask_geo_season' and lock to the A5 frozen mean identity.
+    Anything else is refused instead of being silently interpreted.
+    """
+    schema_version = int(stats.get("schema_version", 1))
+    condition_mode = stats.get("condition_mode")
+    if schema_version == 1 and condition_mode == V1_MEAN_CONDITION_MODE:
+        return {
+            "schema_version": 1,
+            "condition_mode": V1_MEAN_CONDITION_MODE,
+            "mean_sha256": LOCKED_MEAN_CHECKPOINT_SHA256,
+            "sidecar_presence_fields": (),
+        }
+    if (
+            schema_version == CENTERED_STATS_SCHEMA_VERSION
+            and condition_mode == V2_MEAN_CONDITION_MODE
+        ):
+        return {
+            "schema_version": CENTERED_STATS_SCHEMA_VERSION,
+            "condition_mode": V2_MEAN_CONDITION_MODE,
+            "mean_sha256": A5_LOCKED_MEAN_CHECKPOINT_SHA256,
+            "sidecar_presence_fields": V2_SIDECAR_PRESENCE_FIELDS,
+        }
+    raise ValueError(
+        "unsupported centered stats protocol: schema_version="
+        f"{stats.get('schema_version')!r} condition_mode="
+        f"{condition_mode!r}; v1 requires '{V1_MEAN_CONDITION_MODE}', "
+        f"v2 requires '{V2_MEAN_CONDITION_MODE}' with schema_version "
+        f"{CENTERED_STATS_SCHEMA_VERSION}"
+    )
 
 
 # 用途：计算文件内容的 SHA256 十六进制摘要（用于冻结均值身份校验）。
@@ -154,6 +225,53 @@ def cross_check_mean_sidecar(stats, mean_checkpoint_path):
     stats JSON, or its recorded semantics hash does not match.
     """
     immutable = mean_sidecar_immutable(mean_checkpoint_path)
+    # Resolve the protocol from the stats payload when it declares one;
+    # a partial draft (compute_centered_stats cross-checks the mean file
+    # before the full payload exists) falls back to the mean sidecar's
+    # own condition mode so an A5-geo-season mean still gets the v2
+    # checks and a legacy mean keeps the legacy behavior.
+    if (
+            stats.get("schema_version") is not None
+            or stats.get("condition_mode") is not None
+        ):
+        spec = centered_protocol_spec(stats)
+    elif immutable.get("condition_mode") == V2_MEAN_CONDITION_MODE:
+        spec = {
+            "schema_version": CENTERED_STATS_SCHEMA_VERSION,
+            "condition_mode": V2_MEAN_CONDITION_MODE,
+            "mean_sha256": A5_LOCKED_MEAN_CHECKPOINT_SHA256,
+            "sidecar_presence_fields": V2_SIDECAR_PRESENCE_FIELDS,
+        }
+    else:
+        spec = {
+            "schema_version": 1,
+            "condition_mode": V1_MEAN_CONDITION_MODE,
+            "mean_sha256": LOCKED_MEAN_CHECKPOINT_SHA256,
+            "sidecar_presence_fields": (),
+        }
+    if spec["schema_version"] == CENTERED_STATS_SCHEMA_VERSION:
+        # v2: the mean must itself be an A5-geo-season deterministic
+        # model -- 14 channels, condition mode and the geo/time/manifest
+        # provenance present (values are bound by the semantics hash).
+        if immutable.get("condition_mode") != V2_MEAN_CONDITION_MODE:
+            raise ValueError(
+                "v2 frozen mean sidecar condition_mode="
+                f"{immutable.get('condition_mode')!r} does not match "
+                f"'{V2_MEAN_CONDITION_MODE}'"
+            )
+        if int(immutable.get("cond_chans", -1)) != V2_MEAN_COND_CHANS:
+            raise ValueError(
+                "v2 frozen mean sidecar cond_chans="
+                f"{immutable.get('cond_chans')!r} does not match "
+                f"{V2_MEAN_COND_CHANS} (sst_mask_geo_season)"
+            )
+        for field in spec["sidecar_presence_fields"]:
+            if immutable.get(field) is None:
+                raise ValueError(
+                    "v2 frozen mean sidecar immutable lacks "
+                    f"{field!r}; a geo-season mean must prove its "
+                    "calendar/time/manifest provenance"
+                )
     for field, expected in MEAN_IMMUTABLE_EXPECTATIONS.items():
         actual = immutable.get(field)
         if _plain(actual) != _plain(expected):
@@ -207,19 +325,20 @@ def validate_centered_stats_payload(
     """Validate a centered innovation stats JSON payload.
 
     Enforces: train split provenance, the centered target space, day
-    counts, per-lead counts, finite/positive stds, the locked frozen
-    mean SHA identity, mean residual stats, index provenance, and the
-    absence of any val/test metadata.  Returns a normalized dict of the
-    validated values.
+    counts, per-lead counts, finite/positive stds, the per-protocol
+    frozen mean SHA identity (v1 legacy vs v2 A5-geo-season), mean
+    residual stats, index provenance, and the absence of any val/test
+    metadata.  Returns a normalized dict of the validated values.
     """
-    if expected_mean_checkpoint_sha256 is None:
-        # Resolved at call time (not bound at import) so tests and
-        # alternate locks can override the identity.
-        expected_mean_checkpoint_sha256 = LOCKED_MEAN_CHECKPOINT_SHA256
     if not isinstance(stats, dict):
         raise ValueError(
             "centered stats payload must be a JSON object"
         )
+    spec = centered_protocol_spec(stats)
+    if expected_mean_checkpoint_sha256 is None:
+        # Resolved at call time from the payload's own protocol (not
+        # bound at import) so tests and alternate locks can override.
+        expected_mean_checkpoint_sha256 = spec["mean_sha256"]
     for forbidden in _FORBIDDEN_SPLIT_KEYS:
         if forbidden in stats:
             raise ValueError(
@@ -251,10 +370,11 @@ def validate_centered_stats_payload(
             f"does not match {output_days}"
         )
     condition_mode = stats.get("condition_mode")
-    if condition_mode != "sst_mask":
+    if condition_mode != spec["condition_mode"]:
         raise ValueError(
-            "centered stats must declare condition_mode="
-            f"'sst_mask' (got {condition_mode!r})"
+            "centered stats condition_mode="
+            f"{condition_mode!r} does not match its resolved protocol "
+            f"({spec['condition_mode']!r})"
         )
     lead_mean = _finite_positive_stats(
         stats.get("lead_mean"),
@@ -364,9 +484,10 @@ def validate_centered_fresh_inputs(
     ):
     """Per-rank fail-closed validation of a fresh centered run.
 
-    Verifies the frozen mean checkpoint file SHA against both the
-    locked identity and the stats JSON, cross-checks the mean sidecar,
-    and compares the mean architecture with the centered model config.
+    Verifies the frozen mean checkpoint file SHA against the
+    stats-declared identity (which the payload validator locked to the
+    per-protocol frozen-mean SHA), cross-checks the mean sidecar, and
+    compares the mean architecture with the centered model config.
     Raises ValueError on the first violation so every rank exits.
     """
     if not mean_checkpoint_path or not centered_stats_path:
@@ -393,16 +514,12 @@ def validate_centered_fresh_inputs(
         output_days=model_config.output_days,
     )
     file_sha = sha256_hex_file(mean_checkpoint_path)
-    if file_sha != LOCKED_MEAN_CHECKPOINT_SHA256:
+    if file_sha != validated["mean_checkpoint_sha256"]:
         raise ValueError(
             "frozen mean checkpoint SHA-256 mismatch: file "
-            f"{file_sha} vs locked {LOCKED_MEAN_CHECKPOINT_SHA256}"
-        )
-    if validated["mean_checkpoint_sha256"] != file_sha:
-        raise ValueError(
-            "centered stats mean_checkpoint_sha256="
-            f"{validated['mean_checkpoint_sha256']} does not match "
-            f"the mean checkpoint file SHA {file_sha}"
+            f"{file_sha} vs the stats-declared identity "
+            f"{validated['mean_checkpoint_sha256']} (already locked "
+            "per the payload's centered protocol)"
         )
     immutable = cross_check_mean_sidecar(
         stats,

@@ -13,6 +13,7 @@ from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.amp import GradScaler
 
 from deterministic_iafno.centered_stats import (
+    A5_LOCKED_MEAN_CHECKPOINT_SHA256,
     CENTERED_TARGET_SPACE,
     LOCKED_MEAN_CHECKPOINT_SHA256,
     cross_check_mean_sidecar,
@@ -172,6 +173,84 @@ class CenteredStatsValidatorTests(unittest.TestCase):
             indices_sha256(indices),
         )
         self.assertEqual(len(indices_sha256(indices)), 64)
+
+    # -- v2 (A5-geo-season) protocol ---------------------------------
+
+    # 用途：合法 v2 载荷（schema 2 + geo-season + A5 均值身份）通过。
+    # 参数：无输入；输出 无（断言失败即抛异常）。
+    def test_v2_payload_passes(self):
+        payload = valid_payload(
+            schema_version=2,
+            condition_mode="sst_mask_geo_season",
+            mean_checkpoint_sha256=A5_LOCKED_MEAN_CHECKPOINT_SHA256,
+        )
+        validated = validate_centered_stats_payload(payload, 15, 7, 15)
+        self.assertEqual(len(validated["lead_mean"]), 15)
+        self.assertEqual(
+            validated["mean_checkpoint_sha256"],
+            A5_LOCKED_MEAN_CHECKPOINT_SHA256,
+        )
+
+    # 用途：v1 载荷仍锁定旧均值——写 A5 SHA 必须被拒绝。
+    # 参数：无输入；输出 无（断言失败即抛异常）。
+    def test_v1_payload_stays_locked_to_legacy_mean(self):
+        with self.assertRaisesRegex(ValueError, "locked frozen mean"):
+            validate_centered_stats_payload(
+                valid_payload(
+                    mean_checkpoint_sha256=A5_LOCKED_MEAN_CHECKPOINT_SHA256
+                ),
+                15,
+                7,
+                15,
+            )
+
+    # 用途：协议混搭（schema 版本与条件模式不配对）被拒绝。
+    # 参数：无输入；输出 无（断言失败即抛异常）。
+    def test_protocol_mixing_fails(self):
+        # schema_version 2 却声明 sst_mask。
+        with self.assertRaisesRegex(
+                ValueError, "unsupported centered stats protocol"
+            ):
+            validate_centered_stats_payload(
+                valid_payload(schema_version=2), 15, 7, 15
+            )
+        # schema_version 1 却声明 geo-season。
+        with self.assertRaisesRegex(
+                ValueError, "unsupported centered stats protocol"
+            ):
+            validate_centered_stats_payload(
+                valid_payload(condition_mode="sst_mask_geo_season"),
+                15,
+                7,
+                15,
+            )
+
+    # 用途：v2 载荷写旧均值 SHA 必须被拒绝。
+    # 参数：无输入；输出 无（断言失败即抛异常）。
+    def test_v2_wrong_mean_sha_fails(self):
+        with self.assertRaisesRegex(ValueError, "locked frozen mean"):
+            validate_centered_stats_payload(
+                valid_payload(
+                    schema_version=2,
+                    condition_mode="sst_mask_geo_season",
+                    mean_checkpoint_sha256=LOCKED_MEAN_CHECKPOINT_SHA256,
+                ),
+                15,
+                7,
+                15,
+            )
+
+    # 用途：v2 载荷缺 mean_semantics_sha256 等来源哈希仍被拒绝。
+    # 参数：无输入；输出 无（断言失败即抛异常）。
+    def test_v2_requires_provenance_hashes(self):
+        payload = valid_payload(
+            schema_version=2,
+            condition_mode="sst_mask_geo_season",
+            mean_checkpoint_sha256=A5_LOCKED_MEAN_CHECKPOINT_SHA256,
+        )
+        del payload["mean_semantics_sha256"]
+        with self.assertRaisesRegex(ValueError, "mean_semantics_sha256"):
+            validate_centered_stats_payload(payload, 15, 7, 15)
 
 
 class DatasetStub:
