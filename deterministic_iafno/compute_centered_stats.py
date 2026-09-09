@@ -154,6 +154,7 @@ def compute_centered_stats(
         device,
         use_amp,
         data_manifest=None,
+        master_indices_size=65536,
     ):
     started = time.time()
     model, model_config, mean_immutable = load_frozen_mean(
@@ -186,7 +187,37 @@ def compute_centered_stats(
         raise ValueError(
             "frozen mean model was not built with its own lead stats"
         )
-    indices = build_chunk_aware_indices(dataset, num_samples)
+    if condition_mode == V2_MEAN_CONDITION_MODE:
+        # v2 (plan 6.1): one fixed, deterministic, chunk-aware master
+        # ordering is computed once and every requested count is a
+        # PREFIX of it, so the 8192-vs-16384 stability comparison is
+        # genuinely nested instead of two unrelated draws.
+        master_count = min(int(master_indices_size), len(dataset))
+        master = build_chunk_aware_indices(dataset, master_count)
+        if num_samples > len(master):
+            raise ValueError(
+                f"--num-samples {num_samples} exceeds the nested "
+                f"master ordering length {len(master)}"
+            )
+        indices = master[:int(num_samples)]
+        selection = "nested_chunk_aware_prefix"
+        selection_description = (
+            "deterministic chunk-aware master ordering of "
+            f"{master_count} samples (evenly spaced initialization "
+            "dates, each reading one contiguous spatial block of "
+            "chunk_rows samples; spatial start rotates between dates; "
+            "no random seed); requested counts are nested prefixes of "
+            "this fixed master sequence"
+        )
+    else:
+        indices = build_chunk_aware_indices(dataset, num_samples)
+        selection = "evenly_spaced_sequence_spatial_chunk_blocks"
+        selection_description = (
+            "deterministic chunk-aware selection: evenly spaced "
+            "initialization dates across the train split, each reading "
+            "one contiguous spatial block of chunk_rows samples; "
+            "spatial start rotates between dates; no random seed"
+        )
     accumulator = LeadStatsAccumulator(output_days)
     model_device = next(model.parameters()).device
 
@@ -243,15 +274,8 @@ def compute_centered_stats(
         "condition_mode": condition_mode,
         "num_samples": int(len(indices)),
         "dataset_size": int(len(dataset)),
-        "selection": (
-            "evenly_spaced_sequence_spatial_chunk_blocks"
-        ),
-        "selection_description": (
-            "deterministic chunk-aware selection: evenly spaced "
-            "initialization dates across the train split, each reading "
-            "one contiguous spatial block of chunk_rows samples; "
-            "spatial start rotates between dates; no random seed"
-        ),
+        "selection": selection,
+        "selection_description": selection_description,
         "indices_sha256": indices_sha256(indices),
         "mean_checkpoint": os.path.abspath(mean_checkpoint_path),
         "mean_checkpoint_sha256": sha256_hex_file(

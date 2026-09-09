@@ -398,6 +398,7 @@ class A5CenteredPreflightTests(unittest.TestCase):
             mean_sidecar_immutable,
         )
         self.immutable, _ = mean_sidecar_immutable(self.mean_path)
+        self.mean_sha = sha256_hex_file(self.mean_path)
 
     # 用途：清理。
     # 参数：无输入；输出 无。
@@ -446,6 +447,130 @@ class A5CenteredPreflightTests(unittest.TestCase):
         bad["patch_size"] = [4, 4, 1]
         with self.assertRaisesRegex(ValueError, "patch_size"):
             verify_arch_vs_mean_sidecar(bad, self.immutable)
+
+    # 用途：v2 统计计算用嵌套前缀方案：selection/num_samples/indices_sha 正确。
+    # 参数：无输入；输出 无（断言）。
+    def test_compute_stats_v2_nested_prefix(self):
+        from deterministic_iafno.compute_centered_stats import (
+            build_chunk_aware_indices,
+            compute_centered_stats,
+        )
+        from deterministic_iafno.centered_stats import (
+            indices_sha256,
+        )
+        with mock.patch.object(
+                centered_stats_module,
+                "A5_LOCKED_MEAN_CHECKPOINT_SHA256",
+                self.mean_sha,
+            ), mock.patch(
+                "deterministic_iafno.compute_centered_stats."
+                "A5_LOCKED_MEAN_CHECKPOINT_SHA256",
+                self.mean_sha,
+            ):
+            payload8, _ = compute_centered_stats(
+                h5_path=self.h5_path,
+                mean_checkpoint_path=self.mean_path,
+                num_samples=8,
+                batch_size=8,
+                input_days=7,
+                output_days=15,
+                device=torch.device("cpu"),
+                use_amp=False,
+                data_manifest=self.manifest_path,
+            )
+            payload16, _ = compute_centered_stats(
+                h5_path=self.h5_path,
+                mean_checkpoint_path=self.mean_path,
+                num_samples=16,
+                batch_size=8,
+                input_days=7,
+                output_days=15,
+                device=torch.device("cpu"),
+                use_amp=False,
+                data_manifest=self.manifest_path,
+            )
+        # compute_centered_stats self-validated both payloads under the
+        # patched lock; only assert protocol fields out here.
+        self.assertEqual(payload8["schema_version"], 2)
+        self.assertEqual(
+            payload8["selection"], "nested_chunk_aware_prefix"
+        )
+        self.assertEqual(payload16["selection"], "nested_chunk_aware_prefix")
+        master = build_chunk_aware_indices(
+            self.dataset, min(65536, len(self.dataset))
+        )
+        self.assertEqual(
+            payload8["indices_sha256"], indices_sha256(master[:8])
+        )
+        self.assertEqual(
+            payload16["indices_sha256"], indices_sha256(master[:16])
+        )
+
+
+class StabilitySummaryTests(unittest.TestCase):
+    """Pure stability-decision function (plan 6.1 thresholds)."""
+
+    # 用途：构造统计载荷的最小结构（仅 stability_summary 所需字段）。
+    # 参数：输入 num_samples、lead_mean、lead_std；输出 载荷 dict。
+    @staticmethod
+    def payload(num_samples, lead_mean, lead_std):
+        return {
+            "num_samples": num_samples,
+            "lead_mean": lead_mean,
+            "lead_std": lead_std,
+            "valid_pixels": [100] * 15,
+        }
+
+    # 用途：逐 lead 变化都在阈值内 -> 稳定。
+    # 参数：无输入；输出 无（断言）。
+    def test_small_changes_stable(self):
+        from scripts.centered_stats_stability import (
+            stability_summary,
+        )
+        prev = self.payload(
+            8192, [0.0] * 15, [1.0 + 0.01 * i for i in range(15)]
+        )
+        cur = self.payload(
+            16384,
+            [0.001] * 15,
+            [1.0 * 1.005 + 0.01 * i for i in range(15)],
+        )
+        stable, details = stability_summary(prev, cur)
+        self.assertTrue(stable)
+        self.assertTrue(details["stable"])
+
+    # 用途：任一 lead 的 std 相对变化超 2% -> 不稳定。
+    # 参数：无输入；输出 无（断言）。
+    def test_large_std_change_unstable(self):
+        from scripts.centered_stats_stability import (
+            stability_summary,
+        )
+        cur_std = [1.0 + 0.01 * i for i in range(15)]
+        prev_std = list(cur_std)
+        prev_std[7] = cur_std[7] * 0.95  # 5% relative change on lead 7
+        stable, details = stability_summary(
+            self.payload(8192, [0.0] * 15, prev_std),
+            self.payload(16384, [0.0] * 15, cur_std),
+        )
+        self.assertFalse(stable)
+        self.assertGreater(details["rel_std_change"][7], 0.02)
+
+    # 用途：长度不一致 -> 抛错。
+    # 参数：无输入；输出 无（断言）。
+    def test_length_mismatch_raises(self):
+        from scripts.centered_stats_stability import (
+            stability_summary,
+        )
+        with self.assertRaisesRegex(ValueError, "disagree in length"):
+            stability_summary(
+                self.payload(8192, [0.0] * 15, [1.0] * 15),
+                self.payload(16384, [0.0] * 14, [1.0] * 14),
+            )
+
+
+if __name__ == "__main__":
+    unittest.main()
+
 
 
 if __name__ == "__main__":
