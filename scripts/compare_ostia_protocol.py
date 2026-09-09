@@ -100,19 +100,43 @@ class ProtocolValidator:
             self.model_config.condition_mode,
             "four-method evaluation",
         )
+        # Each method keeps its own source contract (plan 6.1): a
+        # checkpoint bound to an upstream data manifest uses the shared
+        # gap-filtered universe, while a legacy manifest-less checkpoint
+        # keeps the raw compact-time universe (no gap filtering).  The
+        # manifest is therefore only bound when the checkpoint itself
+        # declares one.
+        checkpoint_manifest = getattr(
+            self.model_config, "data_manifest_sha256", None
+        )
+        self.uses_manifest = checkpoint_manifest is not None
         self.dataset = OSTIADailyDataset(
             h5_path=h5_path,
             split="test",
             input_days=self.model_config.input_days,
             output_days=self.model_config.output_days,
             condition_mode=condition_mode,
-            data_manifest=data_manifest,
+            data_manifest=data_manifest if self.uses_manifest else None,
         )
         verify_checkpoint_data_contract(
             self.dataset,
             self.model_config,
         )
         self.device = device
+
+    # 用途：返回该模型在自己的数据宇宙中定位同一条物理样本的索引。
+    # 参数：输入 entry（冻结清单条目）；输出 int 索引。
+    def sample_index(self, entry):
+        """Address one frozen physical sample in this method's universe.
+
+        Manifest-bound methods use the gap-filtered ``dataset_index``;
+        legacy (manifest-less) methods use ``legacy_dataset_index`` so
+        the same compact window + spatial patch maps to the same sample
+        without changing the gap-filtered universe (plan 6.1).
+        """
+        if self.uses_manifest:
+            return int(entry["dataset_index"])
+        return int(entry["legacy_dataset_index"])
 
     def sample_at(self, dataset_index, seed_base):
         sample = self.dataset[int(dataset_index)]
@@ -370,13 +394,18 @@ def main():
 
     for position, dataset_index in enumerate(indices):
         entry = entries_by_index[dataset_index]
-        # Same physical sample across the three loaded models.
+        legacy_index = int(entry["legacy_dataset_index"])
+        # Same physical sample across the three loaded models; each
+        # method addresses it in its own universe (plan 6.1): the
+        # manifest-bound A5 uses the gap-filtered dataset_index, the
+        # legacy methods use the unfiltered legacy_dataset_index.
         (pred_a5, target_a5, mask_a5, mean_a5, std_a5) = a5.sample_at(
-            dataset_index, seed_base=None
+            a5.sample_index(entry), seed_base=None
         )
         (pred_iafno, target_iafno, mask_iafno, mean_iafno,
-         std_iafno) = old_iafno.sample_at(dataset_index, seed_base=None)
-        legacy_index = int(entry["legacy_dataset_index"])
+         std_iafno) = old_iafno.sample_at(
+            old_iafno.sample_index(entry), seed_base=None
+        )
         # DiAFNO member seeding follows the legacy rule
         # 123 + legacy_dataset_index*1000 + member (plan 6.1).
         di_members = []
@@ -387,7 +416,7 @@ def main():
                 + member
             )
             (pred_member, _, _, _, _) = old_diafno.sample_at(
-                dataset_index, seed_base=seed
+                old_diafno.sample_index(entry), seed_base=seed
             )
             di_members.append(pred_member)
         pred_diafno = np.mean(di_members, axis=0)
@@ -442,7 +471,9 @@ def main():
             valid = mask[lead]
             if not valid.any():
                 raise ValueError("empty valid pixels per sample")
-            t = target[lead][valid].astype(np.float64)
+            t = (
+                target[lead][valid] * std_a5 + mean_a5
+            ).astype(np.float64)
             for method in methods:
                 p = preds[method][lead][valid].astype(np.float64)
                 e = p - t
