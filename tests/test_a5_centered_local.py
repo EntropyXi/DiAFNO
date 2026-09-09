@@ -332,5 +332,121 @@ class A5CenteredLocalTests(unittest.TestCase):
         )
 
 
+class A5CenteredPreflightTests(unittest.TestCase):
+    """Pure-function preflight checks on the synthetic geo fixture."""
+
+    # 用途：夹具准备（与本地 E2E 测试同构的合成均值）。
+    # 参数：无输入；输出 无。
+    def setUp(self):
+        self.tmp_dir = tempfile.mkdtemp()
+        self.h5_path = os.path.join(self.tmp_dir, "geo.h5")
+        make_synthetic_h5(
+            self.h5_path,
+            total_days=140,
+            samples_per_day=5,
+            height=16,
+            width=16,
+            coordinate_layout="per_row",
+            with_time_metadata=True,
+        )
+        self.manifest_path = os.path.join(self.tmp_dir, "manifest.json")
+        write_synthetic_data_manifest(self.manifest_path, self.h5_path)
+        self.dataset = OSTIADailyDataset(
+            h5_path=self.h5_path,
+            split="train",
+            input_days=7,
+            output_days=15,
+            condition_mode="sst_mask_geo_season",
+            data_manifest=self.manifest_path,
+        )
+        config = OSTIATrainingConfig()
+        config.output_dir = self.tmp_dir
+        config.condition_mode = "sst_mask_geo_season"
+        model = config.model
+        model.adopt_condition_mode("sst_mask_geo_season")
+        model.image_size = (16, 16, 1)
+        model.patch_size = (2, 2, 1)
+        model.embed_dim = 8
+        model.num_blocks = 2
+        model.explicit_layer = 1
+        model.implicit_layer = 1
+        model.hidden_size_factor = 2
+        model.model_type = "deterministic"
+        model.target_mode = "residual"
+        model.target_scaling = "lead_standardized"
+        model.lead_mean = tuple(float(value) for value in range(15))
+        model.lead_std = tuple(1.0 + value for value in range(15))
+        copy_dataset_provenance(model, self.dataset)
+        self.mean_path = os.path.join(self.tmp_dir, "mean.pth")
+        built = model.build_model(torch.device("cpu"))
+        manager = CheckpointManager(config)
+        optimizer = AdamW(built.parameters(), lr=2e-4)
+        scheduler = CosineAnnealingLR(optimizer, T_max=10, eta_min=1e-6)
+        manager.save(
+            self.mean_path,
+            built,
+            optimizer,
+            scheduler,
+            GradScaler("cuda", enabled=False),
+            epoch=11,
+            global_step=100,
+            train_loss=0.5,
+            dataset=DatasetStub(),
+            random_states=[CheckpointManager.capture_random_state()],
+        )
+        from scripts.preflight_a5_centered import (
+            mean_sidecar_immutable,
+        )
+        self.immutable, _ = mean_sidecar_immutable(self.mean_path)
+
+    # 用途：清理。
+    # 参数：无输入；输出 无。
+    def tearDown(self):
+        self.dataset.close()
+        shutil.rmtree(self.tmp_dir, ignore_errors=True)
+
+    # 用途：合成均值通过 preflight 的冻结均值函数（替换为合成文件 SHA 后）。
+    # 参数：无输入；输出 无（断言）。
+    def test_v2_sidecar_contract_function(self):
+        from scripts.preflight_a5_centered import (
+            verify_frozen_mean,
+        )
+        with mock.patch(
+                "scripts.preflight_a5_centered.A5_MEAN_SHA256",
+                sha256_hex_file(self.mean_path),
+            ):
+            immutable = verify_frozen_mean(self.mean_path)
+        self.assertEqual(
+            immutable["condition_mode"], "sst_mask_geo_season"
+        )
+        self.assertEqual(immutable["cond_chans"], 14)
+
+    # 用途：架构核对：匹配的载荷通过，patch 不符则拒绝。
+    # 参数：无输入；输出 无（断言）。
+    def test_arch_vs_mean_sidecar(self):
+        from scripts.preflight_a5_centered import (
+            verify_arch_vs_mean_sidecar,
+        )
+        payload = {
+            "model_type": "centered_diffusion",
+            "condition_mode": "sst_mask_geo_season",
+            "sigma_data": 1.0,
+            "output_days": 15,
+            "input_days": 7,
+            "image_size": [16, 16, 1],
+            "patch_size": [2, 2, 1],
+            "embed_dim": 8,
+            "num_blocks": 2,
+            "explicit_layer": 1,
+            "implicit_layer": 1,
+            "hidden_size_factor": 2,
+        }
+        verify_arch_vs_mean_sidecar(payload, self.immutable)
+        bad = dict(payload)
+        bad["patch_size"] = [4, 4, 1]
+        with self.assertRaisesRegex(ValueError, "patch_size"):
+            verify_arch_vs_mean_sidecar(bad, self.immutable)
+
+
 if __name__ == "__main__":
     unittest.main()
