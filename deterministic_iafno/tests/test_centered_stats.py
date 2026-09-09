@@ -176,14 +176,23 @@ class CenteredStatsValidatorTests(unittest.TestCase):
 
     # -- v2 (A5-geo-season) protocol ---------------------------------
 
-    # 用途：合法 v2 载荷（schema 2 + geo-season + A5 均值身份）通过。
-    # 参数：无输入；输出 无（断言失败即抛异常）。
-    def test_v2_payload_passes(self):
+    # 用途：构造合法 v2 载荷（schema 2 + geo-season + A5 均值身份）。
+    # 参数：见签名（可覆盖字段）；输出 载荷 dict。
+    @staticmethod
+    def v2_payload(**overrides):
         payload = valid_payload(
             schema_version=2,
             condition_mode="sst_mask_geo_season",
             mean_checkpoint_sha256=A5_LOCKED_MEAN_CHECKPOINT_SHA256,
+            data_manifest_sha256="e" * 64,
         )
+        payload.update(overrides)
+        return payload
+
+    # 用途：合法 v2 载荷（schema 2 + geo-season + A5 均值身份）通过。
+    # 参数：无输入；输出 无（断言失败即抛异常）。
+    def test_v2_payload_passes(self):
+        payload = self.v2_payload()
         validated = validate_centered_stats_payload(payload, 15, 7, 15)
         self.assertEqual(len(validated["lead_mean"]), 15)
         self.assertEqual(
@@ -230,24 +239,28 @@ class CenteredStatsValidatorTests(unittest.TestCase):
     def test_v2_wrong_mean_sha_fails(self):
         with self.assertRaisesRegex(ValueError, "locked frozen mean"):
             validate_centered_stats_payload(
-                valid_payload(
-                    schema_version=2,
-                    condition_mode="sst_mask_geo_season",
-                    mean_checkpoint_sha256=LOCKED_MEAN_CHECKPOINT_SHA256,
+                self.v2_payload(
+                    mean_checkpoint_sha256=LOCKED_MEAN_CHECKPOINT_SHA256
                 ),
                 15,
                 7,
                 15,
             )
 
+    # 用途：v2 载荷缺 data_manifest_sha256 必须被拒绝。
+    # 参数：无输入；输出 无（断言失败即抛异常）。
+    def test_v2_requires_data_manifest_sha(self):
+        payload = self.v2_payload()
+        del payload["data_manifest_sha256"]
+        with self.assertRaisesRegex(
+                ValueError, "data_manifest_sha256"
+            ):
+            validate_centered_stats_payload(payload, 15, 7, 15)
+
     # 用途：v2 载荷缺 mean_semantics_sha256 等来源哈希仍被拒绝。
     # 参数：无输入；输出 无（断言失败即抛异常）。
     def test_v2_requires_provenance_hashes(self):
-        payload = valid_payload(
-            schema_version=2,
-            condition_mode="sst_mask_geo_season",
-            mean_checkpoint_sha256=A5_LOCKED_MEAN_CHECKPOINT_SHA256,
-        )
+        payload = self.v2_payload()
         del payload["mean_semantics_sha256"]
         with self.assertRaisesRegex(ValueError, "mean_semantics_sha256"):
             validate_centered_stats_payload(payload, 15, 7, 15)
@@ -432,7 +445,7 @@ class CenteredStatsEndToEndTests(unittest.TestCase):
                 "LOCKED_MEAN_CHECKPOINT_SHA256",
                 self.mean_sha,
             ):
-            mean_model, _ = load_frozen_mean(
+            mean_model, _, _ = load_frozen_mean(
                 self.mean_path, torch.device("cpu")
             )
         indices = build_chunk_aware_indices(dataset, 64)

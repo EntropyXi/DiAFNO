@@ -21,8 +21,10 @@ import numpy as np
 import torch
 
 from deterministic_iafno.centered_stats import (
+    A5_LOCKED_MEAN_CHECKPOINT_SHA256,
     CENTERED_TARGET_SPACE,
     LOCKED_MEAN_CHECKPOINT_SHA256,
+    V2_MEAN_CONDITION_MODE,
     cross_check_mean_sidecar,
     indices_sha256,
     sha256_hex_file,
@@ -53,12 +55,9 @@ def load_frozen_mean(mean_checkpoint_path, device):
     mean_checkpoint_path = os.path.abspath(mean_checkpoint_path)
     if not os.path.isfile(mean_checkpoint_path):
         raise FileNotFoundError(mean_checkpoint_path)
-    file_sha = sha256_hex_file(mean_checkpoint_path)
-    if file_sha != LOCKED_MEAN_CHECKPOINT_SHA256:
-        raise ValueError(
-            "frozen mean checkpoint SHA-256 mismatch: file "
-            f"{file_sha} vs locked {LOCKED_MEAN_CHECKPOINT_SHA256}"
-        )
+    # The protocol (and therefore the expected frozen-mean SHA) is a
+    # property of the mean checkpoint itself: an A5-geo-season sidecar
+    # locks to the v2 identity, anything else to the v1 identity.
     sidecar = load_semantic_sidecar(mean_checkpoint_path)
     if sidecar is None:
         raise ValueError(
@@ -74,6 +73,17 @@ def load_frozen_mean(mean_checkpoint_path, device):
     if not isinstance(immutable, dict):
         raise ValueError(
             "frozen mean sidecar manifest has no immutable block"
+        )
+    expected_mean_sha = (
+        A5_LOCKED_MEAN_CHECKPOINT_SHA256
+        if immutable.get("condition_mode") == V2_MEAN_CONDITION_MODE
+        else LOCKED_MEAN_CHECKPOINT_SHA256
+    )
+    file_sha = sha256_hex_file(mean_checkpoint_path)
+    if file_sha != expected_mean_sha:
+        raise ValueError(
+            "frozen mean checkpoint SHA-256 mismatch: file "
+            f"{file_sha} vs locked {expected_mean_sha}"
         )
     stats_draft = {
         "mean_lead_mean": immutable["lead_mean"],
@@ -129,7 +139,7 @@ def load_frozen_mean(mean_checkpoint_path, device):
     model = model_config.build_model(device)
     model.load_state_dict(checkpoint["model"], strict=True)
     model.eval()
-    return model, immutable
+    return model, model_config, immutable
 
 
 # 用途：在训练 split 上计算相对冻结均值的逐 lead innovation 均值与标准差。
@@ -143,18 +153,31 @@ def compute_centered_stats(
         output_days,
         device,
         use_amp,
+        data_manifest=None,
     ):
     started = time.time()
+    model, model_config, mean_immutable = load_frozen_mean(
+        mean_checkpoint_path,
+        device,
+    )
+    condition_mode = model_config.condition_mode
+    if (
+            condition_mode == V2_MEAN_CONDITION_MODE
+            and data_manifest is None
+        ):
+        raise ValueError(
+            "the frozen mean is geo-season bound "
+            f"(condition_mode='{condition_mode}'); statistics require "
+            "--data-manifest so the train universe, real dates and gap "
+            "filtering match the mean's contract"
+        )
     dataset = OSTIADailyDataset(
         h5_path=h5_path,
         split="train",
         input_days=input_days,
         output_days=output_days,
-        condition_mode="sst_mask",
-    )
-    model, mean_immutable = load_frozen_mean(
-        mean_checkpoint_path,
-        device,
+        condition_mode=condition_mode,
+        data_manifest=data_manifest,
     )
     if (
             not hasattr(model, "lead_mean")
@@ -184,9 +207,12 @@ def compute_centered_stats(
             input_days - 1:input_days,
         ]
         residual = target - anchor
+        # The frozen mean always runs fp32/no-grad for statistics: the
+        # plan removes the old AMP-vs-fp32 calibration ambiguity at its
+        # root instead of recording which precision produced m/s.
         with torch.no_grad(), torch.autocast(
                 device_type=model_device.type,
-                enabled=use_amp,
+                enabled=False,
             ):
             mu = model.predict(condition)
         innovation = residual.float() - mu.float()
@@ -203,13 +229,18 @@ def compute_centered_stats(
         )
         / max(np.sum(stats["valid_pixels"]), 1)
     )
+    schema_version = (
+        2
+        if condition_mode == V2_MEAN_CONDITION_MODE
+        else 1
+    )
     payload = {
-        "schema_version": 1,
+        "schema_version": schema_version,
         "split": "train",
         "target_space": CENTERED_TARGET_SPACE,
         "input_days": input_days,
         "output_days": output_days,
-        "condition_mode": "sst_mask",
+        "condition_mode": condition_mode,
         "num_samples": int(len(indices)),
         "dataset_size": int(len(dataset)),
         "selection": (
@@ -223,7 +254,9 @@ def compute_centered_stats(
         ),
         "indices_sha256": indices_sha256(indices),
         "mean_checkpoint": os.path.abspath(mean_checkpoint_path),
-        "mean_checkpoint_sha256": LOCKED_MEAN_CHECKPOINT_SHA256,
+        "mean_checkpoint_sha256": sha256_hex_file(
+            mean_checkpoint_path
+        ),
         "mean_semantics_sha256": sha256_of_normalized(mean_immutable),
         "mean_lead_mean": list(mean_immutable["lead_mean"]),
         "mean_lead_std": list(mean_immutable["lead_std"]),
@@ -237,6 +270,8 @@ def compute_centered_stats(
         "valid_pixels": stats["valid_pixels"],
         "h5_path": os.path.abspath(h5_path),
     }
+    if getattr(dataset, "data_manifest_sha256", None) is not None:
+        payload["data_manifest_sha256"] = dataset.data_manifest_sha256
     # Self-check the payload with the shared validator before writing.
     validate_centered_stats_payload(
         payload,
@@ -259,6 +294,15 @@ def main():
     )
     parser.add_argument("--h5-path", required=True)
     parser.add_argument("--mean-checkpoint", required=True)
+    parser.add_argument(
+        "--data-manifest",
+        default=None,
+        help=(
+            "upstream data manifest (required when the frozen mean is "
+            "bound to sst_mask_geo_season so the train universe, real "
+            "dates and gap filtering match its contract)"
+        ),
+    )
     parser.add_argument("--output", required=True)
     parser.add_argument("--input-days", type=int, default=7)
     parser.add_argument("--output-days", type=int, default=15)
@@ -303,6 +347,7 @@ def main():
         output_days=args.output_days,
         device=device,
         use_amp=use_amp,
+        data_manifest=args.data_manifest,
     )
     # Timing is reported on stderr only: the JSON must stay
     # byte-identical across identical invocations.

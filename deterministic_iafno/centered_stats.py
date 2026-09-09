@@ -376,6 +376,17 @@ def validate_centered_stats_payload(
             f"{condition_mode!r} does not match its resolved protocol "
             f"({spec['condition_mode']!r})"
         )
+    if spec["schema_version"] == CENTERED_STATS_SCHEMA_VERSION:
+        manifest_sha = stats.get("data_manifest_sha256")
+        if (
+                not isinstance(manifest_sha, str)
+                or len(manifest_sha) != 64
+            ):
+            raise ValueError(
+                "v2 centered stats must declare a 64-char "
+                "data_manifest_sha256 binding the gap-filtered train "
+                "universe"
+            )
     lead_mean = _finite_positive_stats(
         stats.get("lead_mean"),
         "innovation lead_mean",
