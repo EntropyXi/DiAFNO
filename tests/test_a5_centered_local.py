@@ -507,6 +507,51 @@ class A5CenteredPreflightTests(unittest.TestCase):
         )
 
 
+class DualBestSelectionTests(unittest.TestCase):
+    """Dual-metric selection helpers (plan 7.2)."""
+
+    # 用途：构造候选。
+    # 参数：输入 label、rmse、crps、steps；输出 候选 dict。
+    @staticmethod
+    def candidate(label, rmse, crps, steps):
+        return {
+            "label": label,
+            "source": label + ".pth",
+            "overall_rmse": rmse,
+            "overall_crps": crps,
+            "cumulative_training_steps": steps,
+        }
+
+    # 用途：RMSE 与 CRPS 各选各的最优，互不干扰。
+    # 参数：无输入；输出 无（断言）。
+    def test_dual_metric_selection(self):
+        from scripts.validate_a5_centered_epochs import select_best
+        candidates = [
+            self.candidate("epoch_010", 0.60, 0.40, 2500),
+            self.candidate("epoch_020", 0.58, 0.35, 5000),
+            self.candidate("epoch_030", 0.59, 0.33, 7500),
+        ]
+        best_rmse = select_best(candidates, "overall_rmse")
+        best_crps = select_best(candidates, "overall_crps")
+        self.assertEqual(best_rmse["label"], "epoch_020")
+        self.assertEqual(best_crps["label"], "epoch_030")
+
+    # 用途：同分取较早累计步数。
+    # 参数：无输入；输出 无（断言）。
+    def test_tie_prefers_earlier_steps(self):
+        from scripts.validate_a5_centered_epochs import select_best
+        candidates = [
+            self.candidate("epoch_020", 0.58, 0.35, 5000),
+            self.candidate("epoch_030", 0.58, 0.35, 7500),
+        ]
+        self.assertEqual(
+            select_best(candidates, "overall_rmse")["label"], "epoch_020"
+        )
+        self.assertEqual(
+            select_best(candidates, "overall_crps")["label"], "epoch_020"
+        )
+
+
 class StabilitySummaryTests(unittest.TestCase):
     """Pure stability-decision function (plan 6.1 thresholds)."""
 
