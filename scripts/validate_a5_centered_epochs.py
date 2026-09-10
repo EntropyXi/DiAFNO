@@ -204,11 +204,12 @@ def validate_candidate(args, label, checkpoint_path, protocol):
         with open(output_path, "r", encoding="utf-8") as file:
             result = json.load(file)
     else:
+        import torch
         validator = ProtocolValidator(
             checkpoint_path,
             args.h5_path,
             args.data_manifest,
-            args.device,
+            torch.device(args.device),
             ensemble_members=1,
             sampling_steps=args.sampling_steps,
             s_churn=args.s_churn,
@@ -274,9 +275,16 @@ def main():
         for label, path in list_candidates(
                 args.train_dir, args.num_epochs, args.every
             ):
-            candidate = validate_candidate(
-                args, label, path, protocol
-            )
+            try:
+                candidate = validate_candidate(
+                    args, label, path, protocol
+                )
+            except Exception as error:  # keep the queue alive
+                print(
+                    f"[val] {label}: FAILED {error!r}",
+                    flush=True,
+                )
+                continue
             print(
                 f"[val] {label}: mean_rmse={candidate['overall_rmse']} "
                 f"crps={candidate['overall_crps']} "
@@ -335,7 +343,16 @@ def main():
                     os.path.join(args.validation_dir, label, "validation.json")
                 ):
                 continue
-            candidate = validate_candidate(args, label, path, protocol)
+            try:
+                candidate = validate_candidate(
+                    args, label, path, protocol
+                )
+            except Exception as error:
+                print(
+                    f"[val] {label}: FAILED {error!r}",
+                    flush=True,
+                )
+                continue
             print(
                 f"[val] {label}: mean_rmse={candidate['overall_rmse']} "
                 f"crps={candidate['overall_crps']} "
