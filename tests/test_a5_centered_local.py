@@ -613,10 +613,36 @@ class StabilitySummaryTests(unittest.TestCase):
             )
 
 
+class CandidateCadenceTests(unittest.TestCase):
+    """list_candidates cadence (--every) helper."""
+
+    # 用途：每 K 轮 + 末轮恒在。
+    # 参数：无输入；输出 无（断言）。
+    def test_every_and_last(self):
+        from scripts.validate_a5_centered_epochs import list_candidates
+        with tempfile.TemporaryDirectory() as tmp:
+            for epoch in range(1, 31):
+                with open(
+                        os.path.join(tmp, f"epoch_{epoch:03d}.pth"), "w"
+                    ) as file:
+                    file.write("x")
+                with open(
+                        os.path.join(
+                            tmp, f"epoch_{epoch:03d}.pth.semantics.json"
+                        ),
+                        "w",
+                    ) as file:
+                    file.write("{}")
+            labels = [label for label, _ in list_candidates(tmp, 30, 5)]
+        self.assertEqual(
+            labels,
+            ["epoch_005", "epoch_010", "epoch_015", "epoch_020",
+             "epoch_025", "epoch_030"],
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
-
-
 
 if __name__ == "__main__":
     unittest.main()

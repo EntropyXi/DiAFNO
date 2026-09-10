@@ -166,12 +166,14 @@ def build_protocol(args):
 
 
 # 用途：候选列表：已完成（sidecar 在场）的 epoch 快照，按轮次升序。
-# 参数：输入 train_dir、num_epochs；输出 [(label, path)]。
-def list_candidates(train_dir, num_epochs):
+# 参数：输入 train_dir、num_epochs、every（验证间隔，末轮恒在）；输出 [(label, path)]。
+def list_candidates(train_dir, num_epochs, every=1):
     candidates = []
     if not os.path.isdir(train_dir):
         return candidates
     for epoch in range(1, num_epochs + 1):
+        if epoch % int(every) != 0 and epoch != num_epochs:
+            continue
         checkpoint = os.path.join(
             train_dir, f"epoch_{epoch:03d}.pth"
         )
@@ -245,6 +247,16 @@ def main():
     parser.add_argument("--validation-dir", required=True)
     parser.add_argument("--device", default="cuda:0")
     parser.add_argument("--num-epochs", type=int, default=30)
+    parser.add_argument(
+        "--every",
+        type=int,
+        default=1,
+        help=(
+            "validate every K-th epoch (final epoch always included); "
+            "pre-recorded cadence revision for the expensive 16-member "
+            "sweep (plan 7.2)"
+        ),
+    )
     parser.add_argument("--sampling-steps", type=int, default=16)
     parser.add_argument("--s-churn", type=float, default=0.0)
     parser.add_argument("--no-amp", action="store_true")
@@ -260,7 +272,7 @@ def main():
     def run_sweep():
         validated = []
         for label, path in list_candidates(
-                args.train_dir, args.num_epochs
+                args.train_dir, args.num_epochs, args.every
             ):
             candidate = validate_candidate(
                 args, label, path, protocol
@@ -275,7 +287,11 @@ def main():
         return validated
 
     validated = run_sweep()
-    total_needed = args.num_epochs
+    total_needed = sum(
+        1
+        for epoch in range(1, args.num_epochs + 1)
+        if epoch % int(args.every) == 0 or epoch == args.num_epochs
+    )
     if len(validated) >= total_needed:
         best_rmse = select_best(
             validated,
@@ -313,7 +329,7 @@ def main():
     idle_since = None
     while True:
         for label, path in list_candidates(
-                args.train_dir, args.num_epochs
+                args.train_dir, args.num_epochs, args.every
             ):
             if os.path.isfile(
                     os.path.join(args.validation_dir, label, "validation.json")
@@ -328,7 +344,7 @@ def main():
             )
         validated = []
         for label, _ in list_candidates(
-                args.train_dir, args.num_epochs
+                args.train_dir, args.num_epochs, args.every
             ):
             candidate_dir = os.path.join(args.validation_dir, label)
             path = os.path.join(candidate_dir, "validation.json")
