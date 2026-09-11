@@ -41,10 +41,15 @@ MEMBER_COUNT = 16
 
 
 # 用途：单候选评分：逐样本 16 成员采样，累计 mean-RMSE 与成员 CRPS（物理 K 空间）。
-# 参数：输入 validator（ProtocolValidator）、manifest 载荷、device；输出 结果 dict。
-def score_candidate(validator, manifest_payload):
+# 参数：输入 validator（ProtocolValidator）、manifest 载荷、label（日志标签）、progress_every（进度打印间隔）；输出 结果 dict。
+def score_candidate(validator, manifest_payload, label="", progress_every=10):
     """Pooled per-lead point metrics of the ensemble mean and the
-    per-lead empirical CRPS of the 16 members, in physical Kelvin."""
+    per-lead empirical CRPS of the 16 members, in physical Kelvin.
+
+    One candidate costs ~2-3 h of GPU time, so the sweep prints a
+    progress line every ``progress_every`` samples (elapsed seconds and
+    the running pooled RMSE in K); ``progress_every=0`` is silent.
+    """
     indices = manifest_dataset_indices(manifest_payload)
     entries = {
         int(entry["dataset_index"]): entry
@@ -62,7 +67,8 @@ def score_candidate(validator, manifest_payload):
     err_sum = np.zeros(HORIZON, dtype=np.float64)
     crps_sum = np.zeros(HORIZON, dtype=np.float64)
     per_lead = []
-    for sample_index in indices:
+    started = time.time()
+    for position, sample_index in enumerate(indices):
         entry = entries[sample_index]
         legacy_index = int(entry["legacy_dataset_index"])
         seed_base = 123 + legacy_index * 1000
@@ -92,6 +98,18 @@ def score_candidate(validator, manifest_payload):
             member_values = members[:, lead][:, valid]
             crps_sum[lead] += float(
                 empirical_crps(member_values, t).sum()
+            )
+        if progress_every and (
+                (position + 1) % int(progress_every) == 0
+                or position + 1 == len(indices)
+            ):
+            done = int(counts.sum())
+            print(
+                f"[val] {label} {position + 1}/{len(indices)} samples "
+                f"elapsed={time.time() - started:.0f}s "
+                f"running_rmse="
+                f"{float(np.sqrt(sse.sum() / max(done, 1))):.4f}K",
+                flush=True,
             )
     overall_count = int(counts.sum())
     result = {
@@ -244,7 +262,9 @@ def validate_candidate(args, label, checkpoint_path, protocol):
             split=protocol["split"],
             label=f"{label} val sample manifest",
         )
-        result = score_candidate(validator, args.manifest_payload)
+        result = score_candidate(
+            validator, args.manifest_payload, label=label
+        )
     summary = write_candidate_artifacts(
         candidate_dir, protocol, result, checkpoint_path
     )
