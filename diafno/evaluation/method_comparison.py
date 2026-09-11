@@ -187,26 +187,32 @@ def write_markdown(report, path):
     Path(path).write_text("\n".join(lines), encoding="utf-8")
 
 
-# 用途：绘制 Ground Truth 与三方法 Day 1/5/10/15 的共享色标面板图。
-# 参数：输入 cases（选样）、output_dir（输出目录）、unit（单位）、dpi、title_prefix；输出 无。
-def draw_forecasts(cases, output_dir, unit="source units", dpi=250, title_prefix=""):
+# 用途：绘制 Ground Truth 与各方法 Day 1/5/10/15 的共享色标面板图。
+# 参数：输入 cases（选样）、output_dir（输出目录）、unit（单位）、dpi、title_prefix、panel_keys/panel_labels（面板行，缺省三方法）、leads（列）；输出 图片文件名列表。
+def draw_forecasts(cases, output_dir, unit="source units", dpi=250, title_prefix="",
+                   panel_keys=None, panel_labels=None, leads=LEADS):
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     output_dir = Path(output_dir)
-    panel_keys = ("target", *METHODS)
-    panel_labels = ("Ground Truth", *LABELS)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    leads = tuple(int(lead) for lead in leads)
+    if panel_keys is None:
+        panel_keys = ("target", *METHODS)
+        panel_labels = ("Ground Truth", *LABELS)
+    if panel_labels is None or len(panel_labels) != len(panel_keys):
+        raise ValueError("panel_labels must match panel_keys one to one")
     # All methods, days and regions use the same scale. No resampling,
     # interpolation, percentile clipping, or per-method autoscaling.
     lo, hi = np.inf, -np.inf
     for case in cases:
         expected_shape = np.asarray(case["target_mask"]).shape
-        if len(expected_shape) != 3 or expected_shape[0] < max(LEADS):
+        if len(expected_shape) != 3 or expected_shape[0] < max(leads):
             raise ValueError("Plot mask must have [lead,H,W] shape with at least 15 days")
         for key in panel_keys:
             if key not in case or np.asarray(case[key]).shape != expected_shape:
                 raise ValueError(f"Missing or mismatched plotted field: {key}")
-        for lead in LEADS:
+        for lead in leads:
             valid = case["target_mask"][lead - 1] > 0
             for key in panel_keys:
                 values = case[key][lead - 1][valid]
@@ -222,9 +228,13 @@ def draw_forecasts(cases, output_dir, unit="source units", dpi=250, title_prefix
     cmap.set_bad("#d0d0d0")
     images = []
     for index, case in enumerate(cases):
-        fig, axes = plt.subplots(4, 4, figsize=(12, 11.2), layout="constrained")
+        fig, axes = plt.subplots(
+            len(panel_keys), len(leads),
+            figsize=(3 * len(leads), 2.8 * len(panel_keys)),
+            layout="constrained", squeeze=False,
+        )
         for row, (key, label) in enumerate(zip(panel_keys, panel_labels)):
-            for col, lead in enumerate(LEADS):
+            for col, lead in enumerate(leads):
                 ax = axes[row, col]
                 values = np.ma.array(case[key][lead - 1], mask=case["target_mask"][lead - 1] <= 0)
                 im = ax.imshow(values, cmap=cmap, vmin=lo, vmax=hi, origin="upper", interpolation="nearest")
@@ -234,8 +244,13 @@ def draw_forecasts(cases, output_dir, unit="source units", dpi=250, title_prefix
                 if row == len(panel_keys) - 1:
                     ax.set_xlabel("X (pixel)")
                 ax.tick_params(labelsize=7)
-        metadata = case["metadata"]
-        fig.suptitle(f"{title_prefix}SST forecast | spatial index {metadata['spatial_index']} | input start {metadata['input_start_time']}", fontsize=12)
+        metadata = case.get("metadata", {})
+        fig.suptitle(
+            f"{title_prefix}SST forecast | spatial index "
+            f"{metadata.get('spatial_index', 'n/a')} | input start "
+            f"{metadata.get('input_start_time', 'n/a')}",
+            fontsize=12,
+        )
         fig.colorbar(im, ax=axes.ravel().tolist(), fraction=0.023, pad=0.02, label=f"SST ({unit})")
         name = f"forecast_region_{index:03d}"
         for suffix in ("png", "pdf"):

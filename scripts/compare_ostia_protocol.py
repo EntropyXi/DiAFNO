@@ -440,6 +440,17 @@ def main():
     parser.add_argument("--bootstrap-replicates", type=int, default=2000)
     parser.add_argument("--block-days", type=int, default=22)
     parser.add_argument("--sst-unit", default="K")
+    parser.add_argument(
+        "--figure-samples",
+        type=int,
+        default=4,
+        help=(
+            "save the first N manifest samples' fields (target, mask, "
+            "every method's ensemble mean, in K, float16) to "
+            "figure_fields.npz for the shared-colourmap forecast "
+            "figures; 0 disables the dump"
+        ),
+    )
     parser.add_argument("--no-amp", action="store_true")
     args = parser.parse_args()
     validate_protocol_args(args)
@@ -600,6 +611,7 @@ def evaluate_protocol(args, manifest_payload, a5, old_iafno,
     per_sample = {key: [] for key in ("counts",)}
     per_sample["sse"] = {m: [] for m in methods}
     per_sample["crps"] = {m: [] for m in methods}
+    figure_cases = []
 
     # Bootstrap pairing times use the real-day rule of plan 6.2:
     # real_t0 = day_offsets[compact window start + 6].
@@ -766,6 +778,20 @@ def evaluate_protocol(args, manifest_payload, a5, old_iafno,
         for method in methods:
             per_sample["sse"][method].append(sample_sse[method])
             per_sample["crps"][method].append(sample_crps[method])
+        if position < int(getattr(args, "figure_samples", 0) or 0):
+            # Fixed figure sample set: the first N manifest entries, the
+            # same physical samples under every method, in Kelvin, so the
+            # paper figures use one shared colour scale.
+            figure_cases.append((
+                position,
+                entry,
+                to_kelvin(target[..., 0], *mean_std),
+                mask,
+                {
+                    method: preds[method][..., 0].astype(np.float32)
+                    for method in methods
+                },
+            ))
         if (position + 1) % 10 == 0 or position + 1 == len(indices):
             print(
                 f"[test200] {position + 1}/{len(indices)} samples done",
@@ -784,6 +810,35 @@ def evaluate_protocol(args, manifest_payload, a5, old_iafno,
             for method in methods
         },
     )
+    if figure_cases:
+        figure_payload = {
+            "target_kelvin": np.asarray(
+                [case[2] for case in figure_cases], dtype=np.float16
+            ),
+            "target_mask": np.asarray(
+                [case[3] for case in figure_cases], dtype=np.uint8
+            ),
+            "dataset_index": np.asarray(
+                [int(case[1]["dataset_index"]) for case in figure_cases]
+            ),
+            "spatial_index": np.asarray(
+                [int(case[1]["spatial_index"]) for case in figure_cases]
+            ),
+            "compact_start": np.asarray(
+                [int(case[1]["compact_start"]) for case in figure_cases]
+            ),
+            "input_date_last": np.asarray(
+                [str(case[1]["input_date_last"]) for case in figure_cases]
+            ),
+        }
+        for method in methods:
+            figure_payload[f"prediction_{method_npz_slug(method)}"] = (
+                np.asarray(
+                    [case[4][method] for case in figure_cases],
+                    dtype=np.float16,
+                )
+            )
+        np.savez(output_dir / "figure_fields.npz", **figure_payload)
 
     report = {
         "provenance": {
@@ -932,6 +987,30 @@ def evaluate_protocol(args, manifest_payload, a5, old_iafno,
             )
     with open(output_dir / "metrics.json", "w", encoding="utf-8") as file:
         json.dump(report, file, ensure_ascii=False, indent=2)
+    with open(output_dir / "bootstrap.json", "w", encoding="utf-8") as file:
+        json.dump(
+            {
+                "provenance": report["provenance"],
+                "num_samples": report["num_samples"],
+                "block_rule": (
+                    "real t0 = data-manifest day offset of the compact "
+                    "window start + 6; block id = floor((real_t0 - "
+                    "origin) / block_days) with origin at the split's "
+                    "first window t0 (plan 6.2)"
+                ),
+                "block_days": args.block_days,
+                "replicates": args.bootstrap_replicates,
+                "seed": args.seed,
+                "deltas": {
+                    key: value
+                    for key, value in report.items()
+                    if key.startswith("delta_")
+                },
+            },
+            file,
+            ensure_ascii=False,
+            indent=2,
+        )
     with open(output_dir / "evaluation_manifest.json", "w", encoding="utf-8") as file:
         json.dump(
             {
@@ -940,6 +1019,7 @@ def evaluate_protocol(args, manifest_payload, a5, old_iafno,
                 "outputs": [
                     "metrics.json",
                     "paired_contributions.npz",
+                    "bootstrap.json",
                 ],
             },
             file,
