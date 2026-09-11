@@ -25,11 +25,58 @@ from tests.test_a5_longtrain_local import (
 
 from diafno.data.ostia import OSTIADailyDataset
 from scripts.compare_ostia_protocol import (
+    DecodedSampleCache,
     ensemble_probabilistic_stats,
     evaluate_protocol,
     method_npz_slug,
     protocol_method_names,
 )
+
+
+# 用途：只回显索引并记录解码次数的数据集替身（解码缓存单测用）。
+class CountingDataset:
+    """Dataset stand-in that counts decodes."""
+
+    def __init__(self):
+        self.reads = 0
+
+    def __getitem__(self, index):
+        self.reads += 1
+        return index
+
+    def __len__(self):
+        return 100
+
+
+class DecodedSampleCacheTests(unittest.TestCase):
+    """One decode per physical sample across all ensemble members."""
+
+    def setUp(self):
+        self.dataset = CountingDataset()
+
+    def test_same_index_is_decoded_once(self):
+        cache = DecodedSampleCache(self.dataset, capacity=4)
+        for _ in range(16):
+            self.assertEqual(cache(3), 3)
+        self.assertEqual(self.dataset.reads, 1)
+        self.assertEqual(cache.decodes, 1)
+        self.assertEqual(cache.hits, 15)
+        # Distinct indices still decode once each.
+        cache(4)
+        cache(4)
+        self.assertEqual(self.dataset.reads, 2)
+
+    def test_capacity_evicts_the_least_recently_used(self):
+        cache = DecodedSampleCache(self.dataset, capacity=2)
+        cache(1)
+        cache(2)
+        cache(1)   # refresh 1
+        cache(3)   # evicts 2
+        self.assertEqual(self.dataset.reads, 3)
+        cache(2)   # 2 was evicted -> decode again, evicts 1
+        self.assertEqual(self.dataset.reads, 4)
+        cache(1)   # 1 was evicted by the previous insert
+        self.assertEqual(self.dataset.reads, 5)
 
 
 # 用途：鸭子类型采样器（替代 ProtocolValidator，供评分核心注入）。
@@ -48,6 +95,11 @@ class FakeSampler:
     # 参数：输入 entry；输出 int。
     def sample_index(self, entry):
         return int(entry["dataset_index"])
+
+    # 用途：解码（或复用）一条物理样本。
+    # 参数：输入 dataset_index；输出 样本 dict。
+    def decoded_sample(self, dataset_index):
+        return self.dataset[int(dataset_index)]
 
     # 用途：采样单条物理样本（确定性方法 seed_base=None）。
     # 参数：输入 dataset_index、seed_base；输出 5 元组（预测、真值、mask、均值、标准差）。

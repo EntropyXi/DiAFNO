@@ -589,6 +589,9 @@ class _FakeCenteredValidator:
     def sample_index(self, entry):
         return int(entry["dataset_index"])
 
+    def decoded_sample(self, dataset_index):
+        return self.dataset[int(dataset_index)]
+
     def sample_at(self, dataset_index, seed_base=None):
         sample = self.dataset[int(dataset_index)]
         prediction = np.zeros(

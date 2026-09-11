@@ -24,6 +24,7 @@ import argparse
 import json
 import os
 import sys
+from collections import OrderedDict
 from pathlib import Path
 
 import numpy as np
@@ -64,6 +65,43 @@ def _checkpoint_sha256_must(path, expected, label):
             f"{label} SHA-256 mismatch: file {path} has {actual}, "
             f"expected {expected}"
         )
+
+
+# 用途：物理样本解码的小容量 LRU 缓存（同一物理样本的 16 个成员只解码一次）。
+# 参数：输入 dataset、capacity；输出 可调用缓存对象（dataset_index -> 解码样本）。
+class DecodedSampleCache:
+    """Decode one physical sample once per (region, window).
+
+    Reading one 22-day 448x448 window costs about 2 s (HDF5 rows,
+    mask, per-row patch geometry, geo/season condition), while one
+    denoiser evaluation costs about 0.8 s.  A 16-member ensemble would
+    therefore spend ~70% of its time re-decoding the *same* sample, so
+    the sampler keeps the few most recently decoded samples (each about
+    25 MB) and reuses them across members and methods.
+    """
+
+    def __init__(self, dataset, capacity=4):
+        self.dataset = dataset
+        self.capacity = max(int(capacity), 1)
+        self._cache = OrderedDict()
+        self.decodes = 0
+        self.hits = 0
+
+    # 用途：取解码样本（命中则复用，未命中则解码并淘汰最旧项）。
+    # 参数：输入 dataset_index；输出 样本 dict。
+    def __call__(self, dataset_index):
+        key = int(dataset_index)
+        cached = self._cache.get(key)
+        if cached is not None:
+            self._cache.move_to_end(key)
+            self.hits += 1
+            return cached
+        sample = self.dataset[key]
+        self.decodes += 1
+        self._cache[key] = sample
+        while len(self._cache) > self.capacity:
+            self._cache.popitem(last=False)
+        return sample
 
 
 class ProtocolValidator:
@@ -127,7 +165,14 @@ class ProtocolValidator:
             self.dataset,
             self.model_config,
         )
+        self.decode = DecodedSampleCache(self.dataset)
         self.device = device
+
+    # 用途：解码（或复用）一条物理样本；成员间共享同一次解码。
+    # 参数：输入 dataset_index；输出 样本 dict。
+    def decoded_sample(self, dataset_index):
+        """One decode per physical sample, shared by all members."""
+        return self.decode(dataset_index)
 
     # 用途：返回该模型在自己的数据宇宙中定位同一条物理样本的索引。
     # 参数：输入 entry（冻结清单条目）；输出 int 索引。
@@ -144,7 +189,7 @@ class ProtocolValidator:
         return int(entry["legacy_dataset_index"])
 
     def sample_at(self, dataset_index, seed_base):
-        sample = self.dataset[int(dataset_index)]
+        sample = self.decoded_sample(dataset_index)
         condition = sample["condition"][None].to(self.device).float()
         with torch.no_grad(), autocast(
                 "cuda",
@@ -616,7 +661,7 @@ def evaluate_protocol(args, manifest_payload, a5, old_iafno,
             )
         target = target_a5
         mask = mask_a5 > 0
-        anchor = a5.dataset[int(dataset_index)]["condition"][
+        anchor = a5.decoded_sample(dataset_index)["condition"][
             6, :, :, 0
         ].numpy()
         anchor_kelvin = anchor * std_a5 + mean_a5

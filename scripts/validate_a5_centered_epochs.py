@@ -81,7 +81,7 @@ def score_candidate(validator, manifest_payload, label="", progress_every=10):
             members.append(to_kelvin(prediction))
         members = np.asarray(members, dtype=np.float64)
         mean_prediction = members.mean(axis=0)
-        sample = validator.dataset[validator.sample_index(entry)]
+        sample = validator.decoded_sample(validator.sample_index(entry))
         target = to_kelvin(
             sample["target"].numpy()[..., 0]
         ).astype(np.float64)
