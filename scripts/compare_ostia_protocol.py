@@ -264,6 +264,78 @@ def delta_block_bootstrap(
     return result
 
 
+# 用途：协议方法行的固定顺序（主实验五方法 + 预声明次要行）。
+# 参数：输入 has_centered（新 A5-centered RMSE-best）、has_centered_crps（CRPS-best 次要行）；输出 方法名元组。
+def protocol_method_names(has_centered=False, has_centered_crps=False):
+    """Method rows of the unified protocol (plan section 8).
+
+    The frozen four-method order is preserved exactly when no centered
+    checkpoint is supplied, so the historical run stays reproducible.
+    """
+    names = []
+    if has_centered:
+        names.append("A5_centered_DiAFNO")
+    if has_centered_crps:
+        names.append("A5_centered_DiAFNO_CRPS")
+    names.extend(["A5", "old_IAFNO", "old_DiAFNO", "persistence"])
+    return tuple(names)
+
+
+# 用途：方法名到 npz 键后缀的映射（新增方法只增不改）。
+# 参数：输入 method；输出 str。
+def method_npz_slug(method):
+    """Stable paired-contribution key suffix of a method row."""
+    return {
+        "A5": "a5",
+        "old_IAFNO": "old_iafno",
+        "old_DiAFNO": "old_diafno",
+        "persistence": "persistence",
+        "A5_centered_DiAFNO": "a5_centered",
+        "A5_centered_DiAFNO_CRPS": "a5_centered_crps",
+    }[method]
+
+
+# 用途：集合成员的 spread/skill 与经验中心区间 coverage（概率辅助项）。
+# 参数：输入 members（[M,P] K 空间）、target（[P]）、subset（嵌套前 M 成员，可空）；输出 dict。
+def ensemble_probabilistic_stats(members, target, subset=None):
+    """Spread, skill and empirical central-interval coverage.
+
+    ``members`` is ``[M, P]`` (M members, P valid pixels) and
+    ``target`` is ``[P]``, both in Kelvin.  Intervals use the empirical
+    member quantiles (``np.quantile`` linear interpolation, the same
+    member-rank convention as the empirical CRPS).  With 16 members the
+    50%/90% intervals are coarse, so coverage is an auxiliary
+    diagnostic and never a calibration claim; ``subset`` restricts the
+    member axis to a nested leading subset (8-member sensitivity, no
+    reseeding).
+    """
+    values = np.asarray(members, dtype=np.float64)
+    if subset:
+        values = values[: int(subset)]
+    target = np.asarray(target, dtype=np.float64)
+    mean = values.mean(axis=0)
+    error = mean - target
+    spread = float(np.sqrt(np.square(values - mean).mean()))
+    skill = float(np.sqrt(np.square(error).mean()))
+    quantiles = np.quantile(values, [0.05, 0.25, 0.75, 0.95], axis=0)
+    return {
+        "members": int(values.shape[0]),
+        "spread": spread,
+        "skill": skill,
+        "spread_skill_ratio": (
+            float(spread / skill) if skill > 0 else None
+        ),
+        "coverage_50": float(np.mean(
+            (target >= quantiles[1]) & (target <= quantiles[2])
+        )),
+        "coverage_90": float(np.mean(
+            (target >= quantiles[0]) & (target <= quantiles[3])
+        )),
+        "bias": float(error.mean()),
+        "interval": "empirical member quantiles (np.quantile, linear)",
+    }
+
+
 # 用途：校验四方法主要身份与参数。
 # 参数：输入 args；输出 无。
 def validate_protocol_args(args):
@@ -294,6 +366,22 @@ def main():
     parser.add_argument("--a5-checkpoint", required=True)
     parser.add_argument("--old-iafno-checkpoint", required=True)
     parser.add_argument("--old-diafno-checkpoint", required=True)
+    parser.add_argument(
+        "--centered-checkpoint",
+        default=None,
+        help=(
+            "new A5-centered DiAFNO RMSE-best weights: adds the main "
+            "experiment row A5_centered_DiAFNO (16 members)"
+        ),
+    )
+    parser.add_argument(
+        "--centered-crps-checkpoint",
+        default=None,
+        help=(
+            "pre-declared secondary row A5_centered_DiAFNO_CRPS; used "
+            "only when the CRPS-best weights differ from RMSE-best"
+        ),
+    )
     parser.add_argument("--h5-path", required=True)
     parser.add_argument("--data-manifest", required=True)
     parser.add_argument("--sample-manifest", required=True)
@@ -320,11 +408,6 @@ def main():
 
     device = torch.device(args.device)
     manifest_payload = load_sample_manifest(args.sample_manifest)
-    indices = manifest_dataset_indices(manifest_payload)
-    entries_by_index = {
-        int(entry["dataset_index"]): entry
-        for entry in manifest_payload["entries"]
-    }
 
     a5 = ProtocolValidator(
         args.a5_checkpoint, args.h5_path, args.data_manifest,
@@ -346,11 +429,42 @@ def main():
         use_amp=not args.no_amp,
         split=manifest_payload["split"],
     )
-    for validator in (a5, old_iafno, old_diafno):
+    # Ensemble methods share one member rule (plan 6.1): seed =
+    # value + legacy_dataset_index*1000 + member.  The new centered
+    # DiAFNO is the main-experiment row; its CRPS-best twin is added
+    # only as the pre-declared secondary row.
+    ensemble_validators = {"old_DiAFNO": old_diafno}
+    centered_pairs = (
+        ("A5_centered_DiAFNO", args.centered_checkpoint),
+        ("A5_centered_DiAFNO_CRPS", args.centered_crps_checkpoint),
+    )
+    for name, checkpoint in centered_pairs:
+        if not checkpoint:
+            continue
+        ensemble_validators[name] = ProtocolValidator(
+            checkpoint, args.h5_path, args.data_manifest,
+            device, ensemble_members=1,
+            sampling_steps=args.sampling_steps,
+            s_churn=args.s_churn,
+            use_amp=not args.no_amp,
+            split=manifest_payload["split"],
+        )
+    for validator in (
+            [a5, old_iafno] + list(ensemble_validators.values())
+        ):
         if len(validator.dataset) != len(a5.dataset):
             raise ValueError(
                 "method datasets disagree in length; the frozen sample "
                 "manifest cannot be shared across these checkpoints"
+            )
+        if (
+                validator.dataset.sst_mean != a5.dataset.sst_mean
+                or validator.dataset.sst_std != a5.dataset.sst_std
+        ):
+            raise ValueError(
+                "method normalization statistics disagree; every method "
+                "is scored in one Kelvin space, which requires identical "
+                "sst_mean/sst_std across the compared datasets"
             )
         ensure_manifest_universe(
             manifest_payload,
@@ -361,9 +475,37 @@ def main():
 
     if manifest_payload["split"] != "test":
         raise ValueError(
-            "the four-method protocol runs on the frozen test sample "
+            "the unified protocol runs on the frozen test sample "
             "manifest (split='test')"
         )
+
+    report = evaluate_protocol(
+        args, manifest_payload, a5, old_iafno, ensemble_validators,
+        output_dir,
+    )
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+    return 0
+
+
+# 用途：统一协议的评分核心（逐样本采样、指标、Bootstrap、产物写出）。
+# 参数：输入 args、manifest_payload、a5 与 old_iafno 验证器、ensemble_validators（方法名->验证器）、output_dir；输出 report dict。
+def evaluate_protocol(args, manifest_payload, a5, old_iafno,
+                      ensemble_validators, output_dir):
+    """Score every method row over the frozen manifest and write the
+    artifacts.
+
+    Split out of ``main`` so the scoring core can be unit-tested with
+    injected samplers (duck-typed validators) instead of real
+    checkpoints; the sampling contract is ``sample_index(entry)`` plus
+    ``sample_at(index, seed_base=...)``.
+    """
+    indices = manifest_dataset_indices(manifest_payload)
+    entries_by_index = {
+        int(entry["dataset_index"]): entry
+        for entry in manifest_payload["entries"]
+    }
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     def to_kelvin(value, mean, std):
         return value * std + mean
@@ -376,7 +518,11 @@ def main():
         "legacy_dataset_index": [],
         "block_id": [],
     }
-    methods = ("A5", "old_IAFNO", "old_DiAFNO", "persistence")
+    methods = protocol_method_names(
+        has_centered=args.centered_checkpoint is not None,
+        has_centered_crps=args.centered_crps_checkpoint is not None,
+    )
+    ensemble_methods = tuple(ensemble_validators)
     horizon = HORIZON
     sums = {
         method: {
@@ -393,6 +539,19 @@ def main():
         }
         for method in methods
     }
+    # Probability auxiliary accumulators (plan 8): only ensemble rows
+    # carry spread / coverage; the 8-member row is a nested leading
+    # subset of the same members (no reseeding).
+    for method in ensemble_methods:
+        sums[method].update({
+            "spread_ss": np.zeros(horizon, dtype=np.float64),
+            "cov50": np.zeros(horizon, dtype=np.float64),
+            "cov90": np.zeros(horizon, dtype=np.float64),
+            "spread_ss_8": np.zeros(horizon, dtype=np.float64),
+            "cov50_8": np.zeros(horizon, dtype=np.float64),
+            "cov90_8": np.zeros(horizon, dtype=np.float64),
+            "sample_count": np.zeros(horizon, dtype=np.int64),
+        })
     per_sample = {key: [] for key in ("counts",)}
     per_sample["sse"] = {m: [] for m in methods}
     per_sample["crps"] = {m: [] for m in methods}
@@ -420,20 +579,32 @@ def main():
          std_iafno) = old_iafno.sample_at(
             old_iafno.sample_index(entry), seed_base=None
         )
-        # DiAFNO member seeding follows the legacy rule
-        # 123 + legacy_dataset_index*1000 + member (plan 6.1).
-        di_members = []
-        for member in range(args.ensemble_members):
-            seed = (
-                args.seed
-                + legacy_index * 1000
-                + member
-            )
-            (pred_member, _, _, _, _) = old_diafno.sample_at(
-                old_diafno.sample_index(entry), seed_base=seed
-            )
-            di_members.append(pred_member)
-        pred_diafno = np.mean(di_members, axis=0)
+        # Diffusion member seeding follows the legacy rule
+        # 123 + legacy_dataset_index*1000 + member (plan 6.1); every
+        # ensemble row uses the same rule, so member k of any diffusion
+        # method is drawn under the same random stream.
+        member_stacks = {}
+        for name, validator in ensemble_validators.items():
+            members = []
+            for member in range(args.ensemble_members):
+                seed = (
+                    args.seed
+                    + legacy_index * 1000
+                    + member
+                )
+                (pred_member, _, _, _, _) = validator.sample_at(
+                    validator.sample_index(entry), seed_base=seed
+                )
+                members.append(pred_member)
+            member_stacks[name] = np.asarray([
+                to_kelvin(member, *(a5.dataset.sst_mean,
+                                   a5.dataset.sst_std))
+                for member in members
+            ])
+        pred_centered = {
+            name: stack.mean(axis=0)
+            for name, stack in member_stacks.items()
+        }
 
         if (
                 not np.allclose(target_a5, target_iafno, atol=1e-5)
@@ -456,9 +627,9 @@ def main():
         preds = {
             "A5": to_kelvin(pred_a5, *mean_std),
             "old_IAFNO": to_kelvin(pred_iafno, *mean_std),
-            "old_DiAFNO": to_kelvin(pred_diafno, *mean_std),
             "persistence": pers_kelvin,
         }
+        preds.update(pred_centered)
         if not np.isfinite(target).all() or not np.isfinite(mask).all():
             raise ValueError("non-finite target or mask")
         for method in methods:
@@ -478,12 +649,6 @@ def main():
         sample_sse = {method: [] for method in methods}
         sample_crps = {method: [] for method in methods}
         sample_counts = []
-        # Deterministic member stack: a single member equals the point
-        # forecast; CRPS then collapses to MAE by construction.
-        di_members_kelvin = np.asarray([
-            to_kelvin(member, *mean_std)
-            for member in di_members
-        ])
         for lead in range(horizon):
             valid = mask[lead]
             if not valid.any():
@@ -506,17 +671,52 @@ def main():
                 sample_sse[method].append(float(np.square(e).sum()))
             sample_counts.append(int(valid.sum()))
             for method in methods:
-                if method == "old_DiAFNO":
-                    members = di_members_kelvin[:, lead][:, valid]
-                else:
+                stack = member_stacks.get(method)
+                if stack is None:
+                    # Deterministic member stack: a single member equals
+                    # the point forecast; CRPS then collapses to MAE.
                     members = preds[method][lead][valid][None]
-                crps_lead = empirical_crps(
-                    np.asarray(members, dtype=np.float64),
-                    t,
-                )
+                else:
+                    members = stack[:, lead][:, valid]
+                members = np.asarray(members, dtype=np.float64)
+                crps_lead = empirical_crps(members, t)
                 value = float(crps_lead.sum())
                 sums[method]["crps"][lead] += value
                 sample_crps[method].append(value)
+                if stack is None:
+                    continue
+                # Probability auxiliary (plan 8): pooled spread plus the
+                # mean per-sample empirical coverage of the 16-member
+                # central 50%/90% intervals, and the nested 8-member
+                # sensitivity row of the same members.
+                mean_members = members.mean(axis=0)
+                sums[method]["spread_ss"][lead] += float(
+                    np.square(members - mean_members).sum()
+                )
+                quantiles = np.quantile(
+                    members, [0.05, 0.25, 0.75, 0.95], axis=0
+                )
+                sums[method]["cov50"][lead] += float(np.mean(
+                    (t >= quantiles[1]) & (t <= quantiles[2])
+                ))
+                sums[method]["cov90"][lead] += float(np.mean(
+                    (t >= quantiles[0]) & (t <= quantiles[3])
+                ))
+                sums[method]["sample_count"][lead] += 1
+                subset = members[:8]
+                subset_mean = subset.mean(axis=0)
+                sums[method]["spread_ss_8"][lead] += float(
+                    np.square(subset - subset_mean).sum()
+                )
+                quantiles_8 = np.quantile(
+                    subset, [0.05, 0.25, 0.75, 0.95], axis=0
+                )
+                sums[method]["cov50_8"][lead] += float(np.mean(
+                    (t >= quantiles_8[1]) & (t <= quantiles_8[2])
+                ))
+                sums[method]["cov90_8"][lead] += float(np.mean(
+                    (t >= quantiles_8[0]) & (t <= quantiles_8[3])
+                ))
         per_sample["counts"].append(sample_counts)
         for method in methods:
             per_sample["sse"][method].append(sample_sse[method])
@@ -530,15 +730,14 @@ def main():
     np.savez(
         output_dir / "paired_contributions.npz",
         **contributions,
-        per_sample_sse_a5=np.asarray(per_sample["sse"]["A5"]),
-        per_sample_sse_old_iafno=np.asarray(per_sample["sse"]["old_IAFNO"]),
-        per_sample_sse_old_diafno=np.asarray(per_sample["sse"]["old_DiAFNO"]),
-        per_sample_sse_persistence=np.asarray(per_sample["sse"]["persistence"]),
-        per_sample_crps_a5=np.asarray(per_sample["crps"]["A5"]),
-        per_sample_crps_old_iafno=np.asarray(per_sample["crps"]["old_IAFNO"]),
-        per_sample_crps_old_diafno=np.asarray(per_sample["crps"]["old_DiAFNO"]),
-        per_sample_crps_persistence=np.asarray(per_sample["crps"]["persistence"]),
         per_sample_counts=np.asarray(per_sample["counts"]),
+        **{
+            f"per_sample_{quantity}_{method_npz_slug(method)}": np.asarray(
+                per_sample[quantity][method]
+            )
+            for quantity in ("sse", "crps")
+            for method in methods
+        },
     )
 
     report = {
@@ -549,6 +748,22 @@ def main():
             "a5_checkpoint": args.a5_checkpoint,
             "old_iafno_checkpoint": args.old_iafno_checkpoint,
             "old_diafno_checkpoint": args.old_diafno_checkpoint,
+            "centered_checkpoint": args.centered_checkpoint,
+            "centered_crps_checkpoint": args.centered_crps_checkpoint,
+            "checkpoints": {
+                method: {
+                    "path": validator.checkpoint_path,
+                    "sha256": _file_sha256(validator.checkpoint_path),
+                    "members": (
+                        args.ensemble_members
+                        if method in ensemble_methods else 1
+                    ),
+                }
+                for method, validator in (
+                    [("A5", a5), ("old_IAFNO", old_iafno)]
+                    + list(ensemble_validators.items())
+                )
+            },
             "ensemble_members": args.ensemble_members,
             "sampling_steps": args.sampling_steps,
             "s_churn": args.s_churn,
@@ -562,7 +777,7 @@ def main():
     for method in methods:
         s = sums[method]
         count = s["counts"].sum()
-        report["methods"][method] = {
+        entry = {
             "overall": {
                 "rmse": float(np.sqrt(s["sse"].sum() / count)),
                 "mse": float(s["sse"].sum() / count),
@@ -579,6 +794,33 @@ def main():
             },
             "by_lead_day": {},
         }
+        if method in ensemble_methods:
+            entry["probability_auxiliary"] = {
+                "members": args.ensemble_members,
+                "spread": float(np.sqrt(s["spread_ss"].sum() / count)),
+                "skill": float(np.sqrt(s["sse"].sum() / count)),
+                "spread_skill_ratio": float(
+                    np.sqrt(s["spread_ss"].sum() / count)
+                    / np.sqrt(s["sse"].sum() / count)
+                ),
+                "coverage_50": float(s["cov50"].sum() / count),
+                "coverage_90": float(s["cov90"].sum() / count),
+                "spread_8members": float(
+                    np.sqrt(s["spread_ss_8"].sum() / count)
+                ),
+                "coverage_50_8members": float(s["cov50_8"].sum() / count),
+                "coverage_90_8members": float(s["cov90_8"].sum() / count),
+                "interval": (
+                    "mean per-sample empirical member-quantile coverage "
+                    "(16 members; 8-member row uses the nested first 8 "
+                    "members of the same draws)"
+                ),
+                "limitation": (
+                    "finite-member empirical quantiles are coarse and "
+                    "understate tail spread; not a calibration claim"
+                ),
+            }
+        report["methods"][method] = entry
         for lead in range(horizon):
             n = s["counts"][lead]
             mse = s["sse"][lead] / n
@@ -586,7 +828,7 @@ def main():
                 (s["pred2"][lead] - s["pred"][lead] ** 2 / n)
                 * (s["tgt2"][lead] - s["tgt"][lead] ** 2 / n)
             )
-            report["methods"][method]["by_lead_day"][str(lead + 1)] = {
+            lead_entry = {
                 "rmse": float(np.sqrt(mse)),
                 "mse": float(mse),
                 "mae": float(s["abs"][lead] / n),
@@ -597,20 +839,52 @@ def main():
                 ) if denom > 0 else None,
                 "crps": float(s["crps"][lead] / n),
             }
-    # Direct paired ΔCI: A5 minus each other method (overall pooled).
-    for other in ("old_IAFNO", "old_DiAFNO", "persistence"):
-        report[f"delta_A5_minus_{other}"] = delta_block_bootstrap(
-            np.asarray(per_sample["sse"]["A5"]),
-            np.asarray(per_sample["sse"][other]),
-            np.asarray(per_sample["crps"]["A5"]),
-            np.asarray(per_sample["crps"][other]),
-            np.asarray(per_sample["counts"]),
-            np.asarray(contributions["times_real_t0"]),
-            origin=origin,
-            block_days=args.block_days,
-            replicates=args.bootstrap_replicates,
-            seed=args.seed,
-        )
+            if method in ensemble_methods:
+                samples = int(s["sample_count"][lead])
+                lead_entry.update({
+                    "spread": float(np.sqrt(s["spread_ss"][lead] / n)),
+                    "spread_skill_ratio": float(
+                        np.sqrt(s["spread_ss"][lead] / n)
+                        / np.sqrt(mse)
+                    ),
+                    "coverage_50": float(s["cov50"][lead] / samples),
+                    "coverage_90": float(s["cov90"][lead] / samples),
+                    "spread_8members": float(
+                        np.sqrt(s["spread_ss_8"][lead] / n)
+                    ),
+                    "coverage_50_8members": float(
+                        s["cov50_8"][lead] / samples
+                    ),
+                    "coverage_90_8members": float(
+                        s["cov90_8"][lead] / samples
+                    ),
+                })
+            entry["by_lead_day"][str(lead + 1)] = lead_entry
+    # Direct paired ΔCI against every other row (overall pooled).  The
+    # centered row leads when present; the frozen A5-minus-* block is
+    # kept so the historical four-method run stays comparable.
+    references = [
+        method for method in ("A5_centered_DiAFNO", "A5")
+        if method in methods
+    ]
+    for reference in references:
+        for other in methods:
+            if other == reference:
+                continue
+            report[f"delta_{reference}_minus_{other}"] = (
+                delta_block_bootstrap(
+                    np.asarray(per_sample["sse"][reference]),
+                    np.asarray(per_sample["sse"][other]),
+                    np.asarray(per_sample["crps"][reference]),
+                    np.asarray(per_sample["crps"][other]),
+                    np.asarray(per_sample["counts"]),
+                    np.asarray(contributions["times_real_t0"]),
+                    origin=origin,
+                    block_days=args.block_days,
+                    replicates=args.bootstrap_replicates,
+                    seed=args.seed,
+                )
+            )
     with open(output_dir / "metrics.json", "w", encoding="utf-8") as file:
         json.dump(report, file, ensure_ascii=False, indent=2)
     with open(output_dir / "evaluation_manifest.json", "w", encoding="utf-8") as file:
@@ -627,8 +901,7 @@ def main():
             ensure_ascii=False,
             indent=2,
         )
-    print(json.dumps(report, ensure_ascii=False, indent=2))
-    return 0
+    return report
 
 
 if __name__ == "__main__":
