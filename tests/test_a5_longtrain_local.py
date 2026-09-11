@@ -718,6 +718,48 @@ class CenteredValQueueSplitTests(OSTIATestCase):
         with self.assertRaisesRegex(ValueError, "evaluation split"):
             load_sample_manifest(path, split="test")
 
+    def test_every_cadence_and_explicit_shard(self):
+        from scripts.validate_a5_centered_epochs import (
+            candidate_epochs,
+            list_candidates,
+        )
+        # Frozen plan cadence: every 5th epoch plus the final epoch.
+        self.assertEqual(
+            candidate_epochs(30, 5), [5, 10, 15, 20, 25, 30]
+        )
+        self.assertEqual(candidate_epochs(30, 1), list(range(1, 31)))
+        # Explicit shards cover the same set, are deduped and sorted.
+        shards = [[5, 25], [10, 30], [15, 20]]
+        self.assertEqual(
+            sorted(
+                epoch
+                for shard in shards
+                for epoch in candidate_epochs(30, 5, shard)
+            ),
+            candidate_epochs(30, 5),
+        )
+        self.assertEqual(candidate_epochs(30, 5, [7, 7]), [7])
+        train_dir = os.path.join(self._tmp, "train")
+        os.makedirs(train_dir, exist_ok=True)
+        for epoch in (5, 10, 15):
+            for suffix in ("", ".semantics.json"):
+                with open(
+                        os.path.join(
+                            train_dir, f"epoch_{epoch:03d}.pth{suffix}"
+                        ),
+                        "w", encoding="utf-8",
+                    ) as file:
+                    file.write("x")
+        # epoch_020 has no checkpoint -> not a candidate of its shard.
+        self.assertEqual(
+            [
+                label for label, _ in list_candidates(
+                    train_dir, 30, 5, [5, 20, 30]
+                )
+            ],
+            ["epoch_005"],
+        )
+
 
 class ManifestUniverseGuardTests(OSTIATestCase):
     """``ensure_manifest_universe`` turns universe mismatches into

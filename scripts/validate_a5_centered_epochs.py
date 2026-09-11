@@ -166,15 +166,32 @@ def build_protocol(args):
     }
 
 
+# 用途：本次扫描需要验证的 epoch 列表（显式清单优先，否则按间隔规则）。
+# 参数：输入 num_epochs、every（间隔）、only_epochs（显式 epoch 列表或 None）；输出 升序 epoch 列表。
+def candidate_epochs(num_epochs, every=1, only_epochs=None):
+    """Epoch numbers this sweep validates.
+
+    Default cadence (plan 7.2): every ``every``-th epoch plus the final
+    epoch.  An explicit ``only_epochs`` list overrides the cadence so
+    independent processes can shard one frozen sweep across GPUs while
+    sharing a single validation directory.
+    """
+    if only_epochs:
+        return sorted({int(epoch) for epoch in only_epochs})
+    return [
+        epoch
+        for epoch in range(1, int(num_epochs) + 1)
+        if epoch % int(every) == 0 or epoch == int(num_epochs)
+    ]
+
+
 # 用途：候选列表：已完成（sidecar 在场）的 epoch 快照，按轮次升序。
-# 参数：输入 train_dir、num_epochs、every（验证间隔，末轮恒在）；输出 [(label, path)]。
-def list_candidates(train_dir, num_epochs, every=1):
+# 参数：输入 train_dir、num_epochs、every（验证间隔，末轮恒在）、only_epochs（显式 epoch 列表）；输出 [(label, path)]。
+def list_candidates(train_dir, num_epochs, every=1, only_epochs=None):
     candidates = []
     if not os.path.isdir(train_dir):
         return candidates
-    for epoch in range(1, num_epochs + 1):
-        if epoch % int(every) != 0 and epoch != num_epochs:
-            continue
+    for epoch in candidate_epochs(num_epochs, every, only_epochs):
         checkpoint = os.path.join(
             train_dir, f"epoch_{epoch:03d}.pth"
         )
@@ -273,10 +290,41 @@ def main():
     parser.add_argument("--sampling-steps", type=int, default=16)
     parser.add_argument("--s-churn", type=float, default=0.0)
     parser.add_argument("--no-amp", action="store_true")
+    parser.add_argument(
+        "--only-epochs",
+        default=None,
+        help=(
+            "explicit comma-separated epoch list overriding --every; "
+            "lets several processes shard one frozen sweep across GPUs "
+            "while sharing a single validation directory (pair with "
+            "--no-select and finish with one full-cadence pass)"
+        ),
+    )
+    parser.add_argument(
+        "--no-select",
+        action="store_true",
+        help=(
+            "score candidates but never write the frozen best_* "
+            "artifacts (shard workers must not select from a partial "
+            "candidate set)"
+        ),
+    )
     parser.add_argument("--watch", action="store_true")
     parser.add_argument("--poll-seconds", type=float, default=60.0)
     parser.add_argument("--exit-grace-seconds", type=float, default=1800.0)
     args = parser.parse_args()
+    if args.only_epochs is not None:
+        args.only_epochs = [
+            int(part)
+            for part in str(args.only_epochs).replace(
+                " ", ""
+            ).split(",")
+            if part
+        ]
+        if not args.only_epochs:
+            raise ValueError("--only-epochs needs at least one epoch")
+        if any(epoch < 1 for epoch in args.only_epochs):
+            raise ValueError("--only-epochs entries must be >= 1")
 
     os.makedirs(args.validation_dir, exist_ok=True)
     protocol = build_protocol(args)
@@ -287,7 +335,8 @@ def main():
     def run_sweep():
         validated = []
         for label, path in list_candidates(
-                args.train_dir, args.num_epochs, args.every
+                args.train_dir, args.num_epochs, args.every,
+                args.only_epochs,
             ):
             try:
                 candidate = validate_candidate(
@@ -309,12 +358,10 @@ def main():
         return validated
 
     validated = run_sweep()
-    total_needed = sum(
-        1
-        for epoch in range(1, args.num_epochs + 1)
-        if epoch % int(args.every) == 0 or epoch == args.num_epochs
-    )
-    if len(validated) >= total_needed:
+    total_needed = len(candidate_epochs(
+        args.num_epochs, args.every, args.only_epochs
+    ))
+    if len(validated) >= total_needed and not args.no_select:
         best_rmse = select_best(
             validated,
             "overall_rmse",
@@ -342,6 +389,14 @@ def main():
         )
         return 0
     if not args.watch:
+        if len(validated) >= total_needed:
+            print(
+                f"[val] shard complete: {len(validated)}/"
+                f"{total_needed} candidates validated; --no-select "
+                "leaves best selection to the full-cadence pass",
+                flush=True,
+            )
+            return 0
         print(
             f"[val] {len(validated)}/{total_needed} validated; use "
             "--watch to keep polling",
@@ -351,7 +406,8 @@ def main():
     idle_since = None
     while True:
         for label, path in list_candidates(
-                args.train_dir, args.num_epochs, args.every
+                args.train_dir, args.num_epochs, args.every,
+                args.only_epochs,
             ):
             if os.path.isfile(
                     os.path.join(args.validation_dir, label, "validation.json")
@@ -375,7 +431,8 @@ def main():
             )
         validated = []
         for label, _ in list_candidates(
-                args.train_dir, args.num_epochs, args.every
+                args.train_dir, args.num_epochs, args.every,
+                args.only_epochs,
             ):
             candidate_dir = os.path.join(args.validation_dir, label)
             path = os.path.join(candidate_dir, "validation.json")
@@ -399,6 +456,14 @@ def main():
                     ),
                 })
         if len(validated) >= total_needed:
+            if args.no_select:
+                print(
+                    f"[val] shard complete: {len(validated)}/"
+                    f"{total_needed} candidates validated; --no-select "
+                    "leaves best selection to the full-cadence pass",
+                    flush=True,
+                )
+                return 0
             best_rmse = select_best(
                 validated,
                 "overall_rmse",
