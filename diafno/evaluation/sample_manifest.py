@@ -236,6 +236,45 @@ def manifest_dataset_indices(payload):
     )
 
 
+# 用途：校验"清单声明的宇宙"与"实际加载数据集"完全一致（fail-closed）。
+# 参数：输入 payload、dataset_size（实际数据集长度）、split（实际 split）、label；输出 无。
+def ensure_manifest_universe(
+        payload,
+        dataset_size,
+        *,
+        split=None,
+        label="sample manifest",
+    ):
+    """Fail closed when a manifest is applied to the wrong universe.
+
+    A frozen sample manifest addresses physical samples by
+    ``dataset_index`` *inside the gap-filtered universe it was frozen
+    from*.  Loading it against a different split (or a differently
+    filtered dataset) silently shifts or overruns those indices -- the
+    historical ``IndexError(110894)`` came from a val-universe
+    manifest (length 218900) being read through a test-split dataset
+    (length 110600).  This guard turns that whole class of bug into an
+    immediate, explicit error naming both universes.
+    """
+    recorded_split = payload.get("split")
+    if split is not None and recorded_split != split:
+        raise ValueError(
+            f"{label} declares split={recorded_split!r} but the "
+            f"dataset was built with split={split!r}; a frozen sample "
+            "manifest must be evaluated in the universe it was frozen "
+            "from"
+        )
+    geo_size = payload.get("dataset_size_geo")
+    if int(dataset_size) != int(geo_size):
+        raise ValueError(
+            f"{label} declares dataset_size_geo={geo_size} but the "
+            f"loaded dataset has length {dataset_size} (split="
+            f"{recorded_split!r}); the manifest and the loader must "
+            "share one gap-filtered sample universe, otherwise every "
+            "dataset_index addresses a different physical sample"
+        )
+
+
 # 用途：为指定数据集与物理条目构造清单负载。
 # 参数：输入 dataset、indices、split、spatial_entries、geo_size、legacy_split_start；输出 payload。
 def build_sample_manifest_payload(

@@ -7,10 +7,12 @@ synthetic data), scoring rules (5.5), plus preflight, sample-manifest
 and candidate-selection unit tests.
 """
 
+import argparse
 import json
 import os
 import tempfile
 import unittest
+from unittest import mock
 
 import numpy as np
 import torch
@@ -25,6 +27,7 @@ from diafno.data.ostia import OSTIADailyDataset
 from diafno.evaluation.sample_manifest import (
     PAIRING_KEYS,
     build_sample_manifest_payload,
+    ensure_manifest_universe,
     geo_fingerprint_from_condition,
     load_sample_manifest,
     manifest_dataset_indices,
@@ -540,6 +543,210 @@ class ScoringRuleTests(unittest.TestCase):
         finally:
             import shutil
             shutil.rmtree(tmp, ignore_errors=True)
+
+
+def make_sample_payload(dataset, indices, *, split="val"):
+    """Minimal manifest payload over a dataset's own universe."""
+    spatial_entries = {}
+    for index in indices:
+        spatial_entries[int(index)] = {
+            "compact_start": int(
+                dataset.valid_start_days[
+                    int(index) // dataset.samples_per_day
+                ]
+            ),
+            "spatial_index": int(int(index) % dataset.samples_per_day),
+        }
+    return build_sample_manifest_payload(
+        dataset,
+        [int(index) for index in indices],
+        split=split,
+        spatial_entries=spatial_entries,
+        dataset_size_geo=len(dataset),
+        legacy_split_start=dataset.split_start_day,
+    )
+
+
+class _FakeCenteredValidator:
+    """ProtocolValidator stand-in that records its split and scores
+    zeros against the real synthetic dataset (no checkpoint needed)."""
+
+    instances = []
+    dataset_override = None
+
+    def __init__(self, checkpoint_path, h5_path, data_manifest, device,
+                 ensemble_members=1, sampling_steps=16, s_churn=None,
+                 use_amp=True, split="test"):
+        self.checkpoint_path = checkpoint_path
+        self.split = split
+        self.ensemble_members = int(ensemble_members)
+        self.sampling_steps = int(sampling_steps)
+        self.s_churn = s_churn
+        self.use_amp = bool(use_amp)
+        self.dataset = type(self).dataset_override
+        type(self).instances.append(self)
+
+    def sample_index(self, entry):
+        return int(entry["dataset_index"])
+
+    def sample_at(self, dataset_index, seed_base=None):
+        sample = self.dataset[int(dataset_index)]
+        prediction = np.zeros(
+            tuple(sample["target"].shape[:-1]), dtype=np.float32
+        )
+        return (prediction, None, None, None, None)
+
+
+class _FakeDataset:
+    """Length-only dataset stand-in for the universe guard."""
+
+    def __init__(self, size, source):
+        self.size = int(size)
+        self.sst_mean = source.sst_mean
+        self.sst_std = source.sst_std
+
+    def __len__(self):
+        return self.size
+
+
+class CenteredValQueueSplitTests(OSTIATestCase):
+    """The centered per-epoch sweep must score candidates inside the
+    split universe the frozen sample manifest was built from.
+
+    Historical bug: ``ProtocolValidator`` hardcoded ``split="test"``
+    (length 110600) while the val-200 manifest addresses the val
+    universe (length 218900) -> ``IndexError(110894)`` on every epoch.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.h5_path, self.data_manifest, self.dataset = (
+            make_dataset_and_manifest(self._tmp)
+        )
+        indices = np.sort(np.random.default_rng(123).choice(
+            len(self.dataset), size=8, replace=False
+        )).tolist()
+        self.payload = make_sample_payload(self.dataset, indices)
+        self.checkpoint = os.path.join(self._tmp, "epoch_005.pth")
+        torch.save(
+            {
+                "epoch": 5,
+                "global_step": 1250,
+                "scheduler": {"last_epoch": 1248},
+                "skipped_optimizer_steps": 2,
+            },
+            self.checkpoint,
+        )
+        self.args = argparse.Namespace(
+            h5_path=self.h5_path,
+            data_manifest=self.data_manifest,
+            sample_manifest=os.path.join(self._tmp, "samples.json"),
+            validation_dir=os.path.join(self._tmp, "validation"),
+            device="cpu",
+            sampling_steps=16,
+            s_churn=0.0,
+            no_amp=True,
+            manifest_payload=self.payload,
+        )
+        _FakeCenteredValidator.instances = []
+        _FakeCenteredValidator.dataset_override = self.dataset
+
+    def test_candidate_is_scored_in_the_manifest_split(self):
+        import scripts.validate_a5_centered_epochs as centered_val
+        protocol = centered_val.build_protocol(self.args)
+        self.assertEqual(protocol["split"], "val")
+        with mock.patch.object(
+                centered_val, "ProtocolValidator", _FakeCenteredValidator
+            ):
+            candidate = centered_val.validate_candidate(
+                self.args, "epoch_005", self.checkpoint, protocol
+            )
+        self.assertTrue(_FakeCenteredValidator.instances)
+        self.assertEqual(
+            {validator.split for validator in
+             _FakeCenteredValidator.instances},
+            {"val"},
+        )
+        self.assertTrue(np.isfinite(candidate["overall_rmse"]))
+        self.assertGreater(candidate["overall_rmse"], 0.0)
+        self.assertEqual(candidate["epoch"], 5)
+        self.assertEqual(candidate["cumulative_training_steps"], 1250)
+        with open(
+                os.path.join(
+                    self.args.validation_dir, "epoch_005",
+                    "protocol.json",
+                ),
+                "r", encoding="utf-8",
+            ) as file:
+            recorded = json.load(file)
+        self.assertEqual(recorded["split"], "val")
+
+    def test_manifest_universe_guard_is_enforced(self):
+        import scripts.validate_a5_centered_epochs as centered_val
+        protocol = centered_val.build_protocol(self.args)
+        # A loader that does not share the manifest's universe (the real
+        # bug: test-split loader, 110600, vs val manifest, 218900) must
+        # fail closed instead of raising a bare IndexError later.
+        _FakeCenteredValidator.dataset_override = _FakeDataset(
+            len(self.dataset) - 3, self.dataset
+        )
+        with mock.patch.object(
+                centered_val, "ProtocolValidator", _FakeCenteredValidator
+            ):
+            with self.assertRaisesRegex(ValueError, "dataset_size_geo"):
+                centered_val.validate_candidate(
+                    self.args, "epoch_005", self.checkpoint, protocol
+                )
+        # A manifest frozen on another split must fail closed as well.
+        _FakeCenteredValidator.dataset_override = self.dataset
+        self.args.manifest_payload = make_sample_payload(
+            self.dataset, [0, 1, 2], split="test"
+        )
+        with mock.patch.object(
+                centered_val, "ProtocolValidator", _FakeCenteredValidator
+            ):
+            with self.assertRaisesRegex(ValueError, "declares split"):
+                centered_val.validate_candidate(
+                    self.args, "epoch_005", self.checkpoint, protocol
+                )
+
+    def test_load_rejects_manifest_of_another_split(self):
+        path = os.path.join(self._tmp, "val_samples.json")
+        with open(path, "w", encoding="utf-8") as file:
+            json.dump(self.payload, file)
+        load_sample_manifest(path, split="val")
+        with self.assertRaisesRegex(ValueError, "evaluation split"):
+            load_sample_manifest(path, split="test")
+
+
+class ManifestUniverseGuardTests(OSTIATestCase):
+    """``ensure_manifest_universe`` turns universe mismatches into
+    explicit errors (regression guard for IndexError(110894))."""
+
+    def setUp(self):
+        super().setUp()
+        _, _, self.dataset = make_dataset_and_manifest(self._tmp)
+        self.payload = make_sample_payload(self.dataset, [0, 1, 2])
+
+    def test_matching_universe_passes(self):
+        ensure_manifest_universe(
+            self.payload, len(self.dataset), split="val"
+        )
+
+    def test_size_mismatch_names_both_universes(self):
+        with self.assertRaisesRegex(
+                ValueError, "dataset_size_geo"
+            ) as context:
+            ensure_manifest_universe(
+                self.payload, len(self.dataset) + 1, split="val"
+            )
+        self.assertIn("split='val'", str(context.exception))
+
+    def test_split_mismatch_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "declares split"):
+            ensure_manifest_universe(
+                self.payload, len(self.dataset), split="test"
+            )
 
 
 if __name__ == "__main__":

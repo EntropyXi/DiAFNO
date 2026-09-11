@@ -35,6 +35,7 @@ from diafno.data.ostia import OSTIADailyDataset, verify_checkpoint_data_contract
 from diafno.evaluation.metrics import RunningSSTMetrics
 from diafno.evaluation.method_comparison import empirical_crps
 from diafno.evaluation.sample_manifest import (
+    ensure_manifest_universe,
     load_sample_manifest,
     manifest_dataset_indices,
 )
@@ -75,7 +76,7 @@ class ProtocolValidator:
 
     def __init__(self, checkpoint_path, h5_path, data_manifest,
                  device, ensemble_members=1, sampling_steps=16,
-                 s_churn=None, use_amp=True):
+                 s_churn=None, use_amp=True, split="test"):
         (
             self.model,
             self.model_config,
@@ -110,9 +111,13 @@ class ProtocolValidator:
             self.model_config, "data_manifest_sha256", None
         )
         self.uses_manifest = checkpoint_manifest is not None
+        # The dataset split is part of the sample universe: a frozen
+        # sample manifest may only be addressed inside the split it was
+        # frozen from (callers pass the manifest's own split).
+        self.split = split
         self.dataset = OSTIADailyDataset(
             h5_path=h5_path,
-            split="test",
+            split=split,
             input_days=self.model_config.input_days,
             output_days=self.model_config.output_days,
             condition_mode=condition_mode,
@@ -325,11 +330,13 @@ def main():
         args.a5_checkpoint, args.h5_path, args.data_manifest,
         device, ensemble_members=1,
         use_amp=not args.no_amp,
+        split=manifest_payload["split"],
     )
     old_iafno = ProtocolValidator(
         args.old_iafno_checkpoint, args.h5_path, args.data_manifest,
         device, ensemble_members=1,
         use_amp=not args.no_amp,
+        split=manifest_payload["split"],
     )
     old_diafno = ProtocolValidator(
         args.old_diafno_checkpoint, args.h5_path, args.data_manifest,
@@ -337,6 +344,7 @@ def main():
         sampling_steps=args.sampling_steps,
         s_churn=args.s_churn,
         use_amp=not args.no_amp,
+        split=manifest_payload["split"],
     )
     for validator in (a5, old_iafno, old_diafno):
         if len(validator.dataset) != len(a5.dataset):
@@ -344,6 +352,12 @@ def main():
                 "method datasets disagree in length; the frozen sample "
                 "manifest cannot be shared across these checkpoints"
             )
+        ensure_manifest_universe(
+            manifest_payload,
+            len(validator.dataset),
+            split=validator.split,
+            label=f"{validator.split}-split sample manifest",
+        )
 
     if manifest_payload["split"] != "test":
         raise ValueError(

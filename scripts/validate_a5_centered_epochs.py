@@ -30,6 +30,7 @@ import numpy as np
 
 from diafno.evaluation.method_comparison import empirical_crps
 from diafno.evaluation.sample_manifest import (
+    ensure_manifest_universe,
     load_sample_manifest,
     manifest_dataset_indices,
 )
@@ -214,6 +215,17 @@ def validate_candidate(args, label, checkpoint_path, protocol):
             sampling_steps=args.sampling_steps,
             s_churn=args.s_churn,
             use_amp=not args.no_amp,
+            split=protocol["split"],
+        )
+        # The frozen val-200 manifest addresses physical samples by
+        # ``dataset_index`` inside the val universe it was frozen from;
+        # scoring it against another split (e.g. the test loader, length
+        # 110600) is exactly the historical IndexError(110894) bug.
+        ensure_manifest_universe(
+            args.manifest_payload,
+            len(validator.dataset),
+            split=protocol["split"],
+            label=f"{label} val sample manifest",
         )
         result = score_candidate(validator, args.manifest_payload)
     summary = write_candidate_artifacts(
@@ -268,7 +280,9 @@ def main():
 
     os.makedirs(args.validation_dir, exist_ok=True)
     protocol = build_protocol(args)
-    args.manifest_payload = load_sample_manifest(args.sample_manifest)
+    args.manifest_payload = load_sample_manifest(
+        args.sample_manifest, split=protocol["split"]
+    )
 
     def run_sweep():
         validated = []
