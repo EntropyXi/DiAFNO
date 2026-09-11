@@ -31,6 +31,13 @@ COMMON="--h5-path $H5 \
  --num-epochs 30 --every 5"
 
 echo "=== [1/5] frozen selection ($(TZ=Asia/Shanghai date '+%F %T')) ==="
+if [ -f "$VAL_SWEEP/best_val_mean_rmse.json" ] \
+   && [ -f "$VAL_SWEEP/best_val_crps.json" ] \
+   && [ -f "$VAL_SWEEP/VAL_SWEEP.md" ]; then
+  # Resumable: the frozen best artifacts and the summary already exist,
+  # so a re-run must not rewrite them.
+  echo "selection + summary already recorded -> skipping steps 1-2"
+else
 # No GPU work: every candidate validation.json already exists, so this
 # pass only re-reads them and writes the two frozen best artifacts.
 CUDA_VISIBLE_DEVICES="" $PY -u scripts/validate_a5_centered_epochs.py \
@@ -41,6 +48,7 @@ $PY scripts/summarize_centered_val_sweep.py \
   --validation-dir "$VAL_SWEEP" \
   --output "$VAL_SWEEP/VAL_SWEEP.md" \
   --baseline-json "$VAL_SWEEP/baseline_a5_frozen.json"
+fi
 
 echo "=== [3/5] CRPS-best row decision ==="
 CRPS_EXTRA="$($PY - "$VAL_SWEEP" <<'PY'
@@ -63,6 +71,9 @@ fi
 
 echo "=== [4/5] unified test-200 (GPU $GPU_INDEX) ==="
 mkdir -p "$TEST_DIR"
+# The log lives beside the output dir: require_fresh_output_dir only
+# accepts a README inside test200/, so a log written there would be
+# mistaken for an artifact of a previous run.
 CUDA_VISIBLE_DEVICES="$GPU_INDEX" $PY -u scripts/compare_ostia_protocol.py \
   --a5-checkpoint experiments/a5_longtrain_v1_20260908/validation/best_val_rmse.pth \
   --old-iafno-checkpoint "$OLD_ROOT/det_lead_standardized/epoch_015.pth" \
@@ -75,12 +86,12 @@ CUDA_VISIBLE_DEVICES="$GPU_INDEX" $PY -u scripts/compare_ostia_protocol.py \
   --output-dir "$TEST_DIR" \
   --device cuda:0 --ensemble-members 16 --sampling-steps 16 --s-churn 0.0 \
   --seed 123 --block-days 22 --bootstrap-replicates 2000 --figure-samples 4 \
-  > "$TEST_DIR/run.log" 2>&1
+  > "$EXP/test200_run.log" 2>&1
 
 echo "=== [5/5] figures + report ==="
 $PY scripts/plot_ostia_protocol_figures.py \
   --fields "$TEST_DIR/figure_fields.npz" \
-  --output-dir "$TEST_DIR/figures" > "$TEST_DIR/figures.log" 2>&1
+  --output-dir "$TEST_DIR/figures" > "$EXP/test200_figures.log" 2>&1
 $PY scripts/report_ostia_protocol.py \
   --metrics "$TEST_DIR/metrics.json" \
   --bootstrap "$TEST_DIR/bootstrap.json" \
