@@ -781,14 +781,16 @@ def evaluate_protocol(args, manifest_payload, a5, old_iafno,
         if position < int(getattr(args, "figure_samples", 0) or 0):
             # Fixed figure sample set: the first N manifest entries, the
             # same physical samples under every method, in Kelvin, so the
-            # paper figures use one shared colour scale.
+            # paper figures use one shared colour scale.  ``target``,
+            # ``mask`` and every ``preds`` row are already [lead,H,W]
+            # (``sample_at`` strips the trailing singleton axis).
             figure_cases.append((
                 position,
                 entry,
-                to_kelvin(target[..., 0], *mean_std),
+                to_kelvin(target, *mean_std),
                 mask,
                 {
-                    method: preds[method][..., 0].astype(np.float32)
+                    method: preds[method].astype(np.float32)
                     for method in methods
                 },
             ))

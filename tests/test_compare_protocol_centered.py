@@ -335,6 +335,55 @@ class EvaluateProtocolTests(OSTIATestCase):
             manifest = json.load(file)
         self.assertEqual(manifest["protocol"]["split"], "test")
 
+    def test_figure_field_dump_feeds_the_plotter(self):
+        from scripts.plot_ostia_protocol_figures import (
+            build_case,
+            parse_crop,
+        )
+        self.args.figure_samples = 2
+        a5, old_iafno, ensemble = self._samplers()
+        evaluate_protocol(
+            self.args, self.payload, a5, old_iafno, ensemble,
+            self.output_dir,
+        )
+        fields_path = os.path.join(self.output_dir, "figure_fields.npz")
+        self.assertTrue(os.path.isfile(fields_path))
+        with np.load(fields_path) as payload:
+            fields = {key: payload[key] for key in payload.files}
+        self.assertEqual(fields["target_kelvin"].shape[0], 2)
+        self.assertEqual(fields["target_kelvin"].dtype, np.float16)
+        self.assertEqual(
+            fields["prediction_a5_centered"].shape,
+            fields["target_kelvin"].shape,
+        )
+        self.assertEqual(
+            fields["target_mask"].shape, fields["target_kelvin"].shape
+        )
+        for slug in ("a5", "old_iafno", "old_diafno", "persistence"):
+            self.assertIn(f"prediction_{slug}", fields)
+        # The dumped fields are directly plottable through the shared
+        # crop helper, on the same physical sample order.
+        case = build_case(
+            fields, 0, parse_crop("0:16,0:16"),
+            ("a5_centered", "a5", "persistence"),
+        )
+        self.assertEqual(case["target"].shape, (15, 16, 16))
+        self.assertEqual(
+            case["metadata"]["spatial_index"],
+            int(fields["spatial_index"][0]),
+        )
+
+    def test_figure_dump_disabled_by_default(self):
+        self.args.figure_samples = 0
+        a5, old_iafno, ensemble = self._samplers()
+        evaluate_protocol(
+            self.args, self.payload, a5, old_iafno, ensemble,
+            self.output_dir,
+        )
+        self.assertFalse(os.path.isfile(
+            os.path.join(self.output_dir, "figure_fields.npz")
+        ))
+
     def test_centered_noise_improves_crps_over_the_noisier_row(self):
         a5, old_iafno, ensemble = self._samplers()
         report = evaluate_protocol(
