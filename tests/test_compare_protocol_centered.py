@@ -16,7 +16,6 @@ import tempfile
 import unittest
 
 import numpy as np
-
 from tests.ostia_test_h5 import OSTIATestCase
 from tests.test_a5_longtrain_local import (
     make_dataset_and_manifest,
@@ -30,7 +29,37 @@ from scripts.compare_ostia_protocol import (
     evaluate_protocol,
     method_npz_slug,
     protocol_method_names,
+    require_fresh_output_dir,
 )
+
+
+class FreshOutputDirTests(unittest.TestCase):
+    """The protocol run may start beside a README but not beside results."""
+
+    def test_missing_or_empty_or_readme_only_directory_is_fresh(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "test200")
+            require_fresh_output_dir(target)          # missing
+            os.makedirs(target)
+            require_fresh_output_dir(target)          # empty
+            with open(
+                    os.path.join(target, "README.md"),
+                    "w", encoding="utf-8",
+                ) as file:
+                file.write("readme")
+            require_fresh_output_dir(target)          # README only
+
+    def test_existing_artifacts_are_refused(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "test200")
+            os.makedirs(target)
+            with open(
+                    os.path.join(target, "metrics.json"),
+                    "w", encoding="utf-8",
+                ) as file:
+                file.write("{}")
+            with self.assertRaisesRegex(ValueError, "metrics.json"):
+                require_fresh_output_dir(target)
 
 
 # 用途：只回显索引并记录解码次数的数据集替身（解码缓存单测用）。

@@ -381,6 +381,31 @@ def ensemble_probabilistic_stats(members, target, subset=None):
     }
 
 
+# 用途：输出目录守卫：只允许空目录或仅含 README 的目录（防止混入旧运行产物）。
+# 参数：输入 output_dir（Path）；输出 无（非法抛 ValueError）。
+def require_fresh_output_dir(output_dir):
+    """Refuse to write a protocol run into a directory holding results.
+
+    A directory that only carries a ``README.md`` is still fresh: the
+    README is metadata written before the run, not a previous result
+    set.  Any other existing entry means the run would mix artifacts.
+    """
+    output_dir = Path(output_dir)
+    if not output_dir.exists():
+        return
+    allowed = {"README.md"}
+    leftovers = sorted(
+        entry.name for entry in output_dir.iterdir()
+        if entry.name not in allowed
+    )
+    if leftovers:
+        raise ValueError(
+            "refusing to write into a directory that already holds "
+            f"run artifacts ({', '.join(leftovers[:5])}); the unified "
+            "protocol must start into an empty directory"
+        )
+
+
 # 用途：校验四方法主要身份与参数。
 # 参数：输入 args；输出 无。
 def validate_protocol_args(args):
@@ -455,11 +480,7 @@ def main():
     args = parser.parse_args()
     validate_protocol_args(args)
     output_dir = Path(args.output_dir)
-    if output_dir.exists() and any(output_dir.iterdir()):
-        raise ValueError(
-            "refusing to write into a non-empty output dir; the four-"
-            "method run must start into an empty directory"
-        )
+    require_fresh_output_dir(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     device = torch.device(args.device)
