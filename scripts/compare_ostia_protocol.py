@@ -115,6 +115,9 @@ class ProtocolValidator:
     def __init__(self, checkpoint_path, h5_path, data_manifest,
                  device, ensemble_members=1, sampling_steps=16,
                  s_churn=None, use_amp=True, split="test"):
+        # Kept on the instance: the report provenance pins every method's
+        # weights by path + SHA without re-reading the constructor call.
+        self.checkpoint_path = str(checkpoint_path)
         (
             self.model,
             self.model_config,
@@ -406,6 +409,44 @@ def require_fresh_output_dir(output_dir):
         )
 
 
+# 用途：采样器契约预检：在开始采样前确认每个方法具备循环与报告所需的属性。
+# 参数：输入 samplers（(方法名, 采样器) 序列）；输出 无（缺属性立即抛 ValueError）。
+def verify_sampler_contract(samplers):
+    """Fail fast when a sampler lacks the surface the run depends on.
+
+    A single 200-sample five-method pass costs about 1.5 h, so the
+    sampling loop and the report writers must not discover a missing
+    attribute at the end.  This preflight runs before any sampling and
+    names the method and the missing attribute.
+    """
+    required = (
+        "checkpoint_path", "split", "dataset",
+        "sample_index", "sample_at", "decoded_sample",
+    )
+    dataset_required = (
+        "sst_mean", "sst_std", "real_day_offsets", "split_start_day",
+    )
+    for method, sampler in samplers:
+        missing = [
+            name for name in required if not hasattr(sampler, name)
+        ]
+        if missing:
+            raise ValueError(
+                f"{method} sampler is missing {', '.join(missing)}; the "
+                "protocol needs the full sampler contract before it "
+                "starts scoring"
+            )
+        dataset = sampler.dataset
+        missing = [
+            name for name in dataset_required
+            if not hasattr(dataset, name)
+        ]
+        if missing:
+            raise ValueError(
+                f"{method} dataset is missing {', '.join(missing)}"
+            )
+
+
 # 用途：校验四方法主要身份与参数。
 # 参数：输入 args；输出 无。
 def validate_protocol_args(args):
@@ -555,6 +596,13 @@ def main():
             "the unified protocol runs on the frozen test sample "
             "manifest (split='test')"
         )
+
+    # Contract before cost: a missing attribute must fail in seconds,
+    # not after the ~1.5 h five-method pass.
+    verify_sampler_contract(
+        [("A5", a5), ("old_IAFNO", old_iafno)]
+        + list(ensemble_validators.items())
+    )
 
     report = evaluate_protocol(
         args, manifest_payload, a5, old_iafno, ensemble_validators,

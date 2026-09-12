@@ -16,6 +16,7 @@ import tempfile
 import unittest
 
 import numpy as np
+import torch
 from tests.ostia_test_h5 import OSTIATestCase
 from tests.test_a5_longtrain_local import (
     make_dataset_and_manifest,
@@ -31,6 +32,114 @@ from scripts.compare_ostia_protocol import (
     protocol_method_names,
     require_fresh_output_dir,
 )
+
+
+class RealValidatorContractTests(OSTIATestCase):
+    """The real ProtocolValidator must expose what the run depends on.
+
+    The five-method pass costs about 1.5 h before its report is written,
+    so the contract the report and sampling loop rely on is asserted
+    against a real (tiny) checkpoint instead of only against the test
+    fake -- a fake carrying an attribute the production class never sets
+    is exactly how an ``AttributeError`` survived to the end of a full
+    run.
+    """
+
+    def setUp(self):
+        super().setUp()
+        from diafno.data.ostia import copy_dataset_provenance
+        from diafno.models.config import OSTIAModelConfig
+
+        self.h5_path, self.data_manifest, self.dataset = (
+            make_dataset_and_manifest(self._tmp)
+        )
+        config = OSTIAModelConfig(
+            input_days=7,
+            output_days=15,
+            cond_chans=len(self.dataset.condition_channel_names),
+            target_chans=15,
+            image_size=(16, 16, 1),
+            patch_size=(4, 4, 1),
+            embed_dim=8,
+            num_blocks=1,
+            explicit_layer=2,
+            implicit_layer=2,
+            hidden_size_factor=2,
+            sampling_steps=4,
+            model_type="diffusion",
+            target_mode="residual",
+            target_scaling="raw",
+            condition_mode=self.dataset.condition_mode,
+            condition_schema_version=int(
+                getattr(self.dataset, "condition_schema_version", 1)
+            ),
+            condition_channel_names=tuple(
+                self.dataset.condition_channel_names
+            ),
+        )
+        copy_dataset_provenance(config, self.dataset)
+        model = config.build_model(torch.device("cpu"), 4)
+        self.checkpoint_path = os.path.join(self._tmp, "tiny_diffusion.pth")
+        torch.save(
+            {
+                "config": config.to_checkpoint(),
+                "model": model.state_dict(),
+                "normalization": None,
+            },
+            self.checkpoint_path,
+        )
+
+    def test_real_validator_exposes_the_sampler_contract(self):
+        from scripts.compare_ostia_protocol import (
+            ProtocolValidator,
+            _file_sha256,
+            verify_sampler_contract,
+        )
+        validator = ProtocolValidator(
+            self.checkpoint_path, self.h5_path, self.data_manifest,
+            torch.device("cpu"), ensemble_members=1, sampling_steps=4,
+            s_churn=0.0, use_amp=False, split="val",
+        )
+        verify_sampler_contract([("tiny", validator)])
+        self.assertEqual(
+            validator.checkpoint_path, str(self.checkpoint_path)
+        )
+        self.assertEqual(validator.split, "val")
+        self.assertEqual(validator.dataset.sst_mean, self.dataset.sst_mean)
+        entry = make_sample_payload(self.dataset, [0])["entries"][0]
+        index = validator.sample_index(entry)
+        prediction, target, mask, mean, std = validator.sample_at(
+            index, seed_base=7
+        )
+        self.assertEqual(prediction.shape, target.shape)
+        self.assertEqual(mask.shape, target.shape)
+        self.assertTrue(np.isfinite(prediction).all())
+        self.assertIs(
+            validator.decoded_sample(index),
+            validator.decoded_sample(index),
+        )
+        # This is the exact call that crashed the full run's report
+        # writer: provenance pins the weights by path + SHA.
+        self.assertEqual(len(_file_sha256(validator.checkpoint_path)), 64)
+
+    def test_preflight_rejects_a_sampler_missing_an_attribute(self):
+        from scripts.compare_ostia_protocol import verify_sampler_contract
+
+        class Partial:
+            split = "test"
+            dataset = self.dataset
+
+            def sample_index(self, entry):
+                return 0
+
+            def sample_at(self, index, seed_base=None):
+                return None
+
+            def decoded_sample(self, index):
+                return None
+
+        with self.assertRaisesRegex(ValueError, "checkpoint_path"):
+            verify_sampler_contract([("partial", Partial())])
 
 
 class FreshOutputDirTests(unittest.TestCase):
