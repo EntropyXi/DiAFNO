@@ -261,6 +261,119 @@ class FakeSampler:
         )
 
 
+# 用途：对称成员偏移的采样器：成员以真值为中心对称，coverage 应为 1。
+class SymmetricOffsetSampler(FakeSampler):
+    """Sampler whose 16 members bracket the target exactly.
+
+    The member offsets are ``(member - 7.5) * step`` across the 16
+    members, so their mean is the target itself and the empirical
+    central intervals bracket it on every pixel; that makes pooled
+    coverage a sharp, non-trivial assertion (1.0) instead of a value a
+    pixel-count denominator could accidentally satisfy.
+    """
+
+    def __init__(self, dataset, checkpoint_path, step=0.02, split="test"):
+        super().__init__(dataset, checkpoint_path, split=split)
+        self.step = float(step)
+
+    def sample_at(self, dataset_index, seed_base=None):
+        sample = self.dataset[int(dataset_index)]
+        target = sample["target"].numpy()[..., 0].astype(np.float64)
+        mask = sample["target_mask"].numpy()[..., 0]
+        if seed_base is None:
+            prediction = target.copy()
+        else:
+            member = int(seed_base) % 16
+            prediction = target + (member - 7.5) * self.step
+        return (
+            prediction.astype(np.float32),
+            target,
+            mask,
+            self.dataset.sst_mean,
+            self.dataset.sst_std,
+        )
+
+
+# 用途：构造一套可复用的协议夹具（合成数据 + 注入式采样器 + 参数）。
+# 参数：输入 tmp（目录，可空）；输出 夹具对象（run/report_payload/cleanup）。
+def make_test_fixture(tmp=None):
+    """Self-contained protocol fixture for the scoring-core tests."""
+
+    class Fixture:
+        def __init__(self, directory):
+            self.tmp = directory
+            self._owns_tmp = tmp is None
+            self.h5_path, self.data_manifest, self.dataset = (
+                make_dataset_and_manifest(self.tmp)
+            )
+            indices = np.sort(np.random.default_rng(11).choice(
+                len(self.dataset), size=6, replace=False
+            )).tolist()
+            self.payload = make_sample_payload(
+                self.dataset, indices, split="test"
+            )
+            self.payload_path = os.path.join(self.tmp, "test_samples.json")
+            with open(self.payload_path, "w", encoding="utf-8") as file:
+                json.dump(self.payload, file)
+            self.output_dir = os.path.join(self.tmp, "test200")
+            self.args = argparse.Namespace(
+                sample_manifest=self.payload_path,
+                a5_checkpoint=self._checkpoint("a5.pth"),
+                old_iafno_checkpoint=self._checkpoint("iafno.pth"),
+                old_diafno_checkpoint=self._checkpoint("diafno.pth"),
+                centered_checkpoint=self._checkpoint("centered.pth"),
+                centered_crps_checkpoint=None,
+                ensemble_members=16,
+                sampling_steps=16,
+                s_churn=0.0,
+                seed=123,
+                block_days=22,
+                bootstrap_replicates=100,
+                figure_samples=0,
+            )
+
+        def _checkpoint(self, name):
+            path = os.path.join(self.tmp, name)
+            with open(path, "wb") as file:
+                file.write(name.encode("utf-8"))
+            return path
+
+        def samplers(self):
+            a5 = FakeSampler(
+                self.dataset, self.args.a5_checkpoint, split="test"
+            )
+            old_iafno = FakeSampler(
+                self.dataset, self.args.old_iafno_checkpoint, split="test"
+            )
+            ensemble = {
+                "old_DiAFNO": SymmetricOffsetSampler(
+                    self.dataset, self.args.old_diafno_checkpoint, step=0.05
+                ),
+                "A5_centered_DiAFNO": SymmetricOffsetSampler(
+                    self.dataset, self.args.centered_checkpoint, step=0.02
+                ),
+            }
+            return a5, old_iafno, ensemble
+
+        def run(self):
+            a5, old_iafno, ensemble = self.samplers()
+            return evaluate_protocol(
+                self.args, self.payload, a5, old_iafno, ensemble,
+                self.output_dir,
+            )
+
+        def report_payload(self):
+            return self.run()
+
+        def cleanup(self):
+            if self._owns_tmp:
+                import shutil
+                shutil.rmtree(self.tmp, ignore_errors=True)
+
+    directory = tmp or tempfile.mkdtemp(prefix="protocol_fixture_")
+    return Fixture(directory)
+
+
 class ProbabilisticStatsTests(unittest.TestCase):
     """Spread / skill / coverage of the ensemble auxiliary rows."""
 

@@ -966,6 +966,11 @@ def evaluate_protocol(args, manifest_payload, a5, old_iafno,
             "by_lead_day": {},
         }
         if method in ensemble_methods:
+            # Coverage accumulates a *per-sample* mean per lead, so the
+            # pooled value divides by the number of (sample, lead)
+            # contributions -- never by the pixel count.  Dividing by
+            # pixels silently produced ~3e-06 instead of ~0.82.
+            coverage_samples = int(s["sample_count"].sum())
             entry["probability_auxiliary"] = {
                 "members": args.ensemble_members,
                 "spread": float(np.sqrt(s["spread_ss"].sum() / count)),
@@ -974,13 +979,25 @@ def evaluate_protocol(args, manifest_payload, a5, old_iafno,
                     np.sqrt(s["spread_ss"].sum() / count)
                     / np.sqrt(s["sse"].sum() / count)
                 ),
-                "coverage_50": float(s["cov50"].sum() / count),
-                "coverage_90": float(s["cov90"].sum() / count),
+                "coverage_50": float(
+                    s["cov50"].sum() / max(coverage_samples, 1)
+                ),
+                "coverage_90": float(
+                    s["cov90"].sum() / max(coverage_samples, 1)
+                ),
                 "spread_8members": float(
                     np.sqrt(s["spread_ss_8"].sum() / count)
                 ),
-                "coverage_50_8members": float(s["cov50_8"].sum() / count),
-                "coverage_90_8members": float(s["cov90_8"].sum() / count),
+                "coverage_50_8members": float(
+                    s["cov50_8"].sum() / max(coverage_samples, 1)
+                ),
+                "coverage_90_8members": float(
+                    s["cov90_8"].sum() / max(coverage_samples, 1)
+                ),
+                "coverage_units": (
+                    "mean per-sample pixel coverage, pooled over "
+                    "(sample, lead) pairs"
+                ),
                 "interval": (
                     "mean per-sample empirical member-quantile coverage "
                     "(16 members; 8-member row uses the nested first 8 "
